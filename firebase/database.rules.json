@@ -1,0 +1,28 @@
+{
+  "rules": {
+    "rooms": {
+      ".indexOn": ["status"],
+      ".read": "auth != null",
+      "$roomId": {
+        ".write": "auth != null",
+        "players": {
+          "$uid": { ".write": "auth != null && auth.uid == $uid" }
+        }
+      }
+    },
+    "roomState": {
+      "$roomId": {
+        ".read": "auth != null",
+        "$uid": { ".write": "auth != null && auth.uid == $uid" }
+      }
+    },
+    "roomEvents": {
+      "$roomId": {
+        ".read": "auth != null",
+        "$eventId": {
+          ".write": "auth != null && !data.exists() && newData.child('fr').val() == auth.uid"
+        }
+      }
+    }
+  }
+}

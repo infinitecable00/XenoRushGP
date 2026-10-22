@@ -1,0 +1,275 @@
+import com.denoya.xenorush.*
+import org.json.JSONObject
+
+fun main() {
+    var pass = 0
+    var fail = 0
+    fun check(name: String, cond: Boolean) {
+        if (cond) { pass++; println("PASS  $name") } else { fail++; println("FAIL  $name") }
+    }
+
+    // --- catalog sanity ---
+    check("22 vehicles", Catalog.VEHICLES.size == 22)
+    check("30 tracks", Catalog.TRACKS.size == 30)
+    check("5 free vehicles", Catalog.VEHICLES.take(5).all { it.priceDrops == 0L })
+    check("5 free tracks", Catalog.TRACKS.take(5).all { it.priceDrops == 0L })
+    check("17 paid vehicles", Catalog.VEHICLES.drop(5).all { it.priceDrops > 0 })
+    check("25 paid tracks", Catalog.TRACKS.drop(5).all { it.priceDrops > 0 })
+    check("vehicles progressively better", Catalog.VEHICLES.zipWithNext().all { (a, b) -> b.topSpeed > a.topSpeed && b.accel > a.accel && b.energy > a.energy })
+    check("weapon types cover 4", WeaponType.entries.size == 4)
+    check("all 30 tracks distinct names", Catalog.TRACKS.map { it.name }.toSet().size == 30)
+    check("all 22 vehicles distinct names", Catalog.VEHICLES.map { it.name }.toSet().size == 22)
+
+    // --- track generation ---
+    val tracks = Catalog.TRACKS.map { TrackGen.build(it) }
+    check("all tracks non-empty", tracks.all { it.size > 100 })
+    val lens = tracks.map { it.size }
+    println("      track segment counts: min=${lens.min()} max=${lens.max()}")
+    check("tracks vary in size", lens.max() - lens.min() > 20)
+    check("track lengths consistent", tracks.all { it.trackLength == it.size * 200 })
+    check("power-ups on all tracks", tracks.all { t -> t.segments.any { it.sprites.isNotEmpty() } })
+    val puCounts = tracks.map { t -> t.segments.sumOf { s -> s.sprites.size } }
+    println("      power-ups per track: min=${puCounts.min()} max=${puCounts.max()}")
+    check("deterministic generation", TrackGen.build(Catalog.TRACKS[7]).let { b -> b.segments.map { it.curve } == tracks[7].segments.map { it.curve } })
+
+    // --- full race simulation ---
+    val track = tracks[0]
+    val player = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+    val ais = (0 until 7).map { Racer(Catalog.VEHICLES[(it * 3) % 22], VehicleState(true, 1, 1, 1, 1), false, 0.9f) }
+    val race = Race(track, ais + player, 0)
+    val input = PlayerInput()
+    var simTime = 0f
+    val dt = 1f / 60f
+    input.gas = true
+    var sawPickup = false
+    var sawFire = false
+    while (!race.finished && simTime < 600f) {
+        val seg = track.segAt(race.player.z)
+        input.left = race.player.x > -0.1f && seg.curve > 1.5f
+        input.right = race.player.x < 0.1f && seg.curve < -1.5f
+        race.update(dt, input, (simTime * 1000).toLong())
+        simTime += dt
+        if (race.player.shieldT > 0f || race.player.boostT > 0f || race.player.reflectT > 0f) sawPickup = true
+        if (race.projectiles.isNotEmpty() || race.mines.isNotEmpty()) sawFire = true
+    }
+    println("      race finished=${race.finished} simTime=${"%.1f".format(simTime)}s lap=${race.player.lap} rank=${race.rank(player)}")
+    check("race completes", race.finished)
+    check("player completes 3 laps", race.player.lap >= 3)
+    check("power-ups were collected", sawPickup)
+    check("weapons were fired", sawFire)
+    check("ranks are a permutation", race.racers.map { race.rank(it) }.sorted() == (1..8).toList())
+    check("race time positive", race.raceTimeMs > 0)
+    // AI should stay mostly on the road (steering compensation works)
+    val aiOff = ais.count { kotlin.math.abs(it.x) > 1.3f }
+    println("      AI off-road count at end: $aiOff/7 (avg |x| = ${"%.2f".format(ais.map { kotlin.math.abs(it.x) }.average())})")
+    check("AI stays on road", aiOff <= 2)
+
+    // --- reflection: incoming projectile bounces back and damages the shooter ---
+    run {
+        val p = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val shooter = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f) // PLASMA
+        val r = Race(track, listOf(p, shooter), 0)
+        r.countdown = 0f
+        p.reflectT = 30f
+        shooter.z = p.z - 2500f // shooter BEHIND the player, fires forward
+        shooter.x = p.x
+        shooter.energy = 200
+        val energyBefore = shooter.energy
+        var reflected = false
+        var damagedShooter = false
+        var t = 0f
+        while (t < 10f) {
+            r.update(1 / 60f, PlayerInput(), (t * 1000).toLong())
+            // manually fire a plasma bolt at the player
+            if (r.projectiles.isEmpty() && t < 1f) {
+                r.fireWeapon(shooter)
+                // plasma bolt flying forward from the shooter toward the player
+                r.projectiles.lastOrNull()?.let { it.x = p.x; it.z = shooter.z + 300f; it.speed = 9000f }
+            }
+            r.projectiles.forEach { if (it.reflected && it.owner === p) reflected = true }
+            if (shooter.energy < energyBefore) { damagedShooter = true; break }
+            t += 1 / 60f
+        }
+        check("projectile reflected back", reflected)
+        check("reflected projectile damages original shooter", damagedShooter)
+    }
+
+    // --- laser deals real damage ---
+    run {
+        val p = Racer(Catalog.VEHICLES[3], VehicleState(true, 1, 1, 1, 1), true, 1f) // LASER
+        val victim = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), false, 1f)
+        val r = Race(track, listOf(p, victim), 0)
+        r.countdown = 0f
+        victim.z = p.z + 2000f
+        victim.x = p.x
+        victim.energy = 200
+        p.ammo = 5
+        r.fireWeapon(p)
+        check("laser damages target", victim.energy < 200)
+    }
+
+    // --- weapon effect per type ---
+    // LASER is instant-hitscan: its effect is verified by damage dealt to an in-range target.
+    for (wt in WeaponType.entries) {
+        val vDef = Catalog.VEHICLES.first { it.weapon == wt }
+        val p2 = Racer(vDef, VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val victim2 = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), false, 0.9f)
+        val r2 = Race(tracks[1], listOf(p2, victim2), 0)
+        r2.countdown = 0f
+        victim2.z = p2.z + 1500f
+        victim2.x = p2.x
+        victim2.energy = 200
+        p2.ammo = 5
+        val before = r2.projectiles.size + r2.mines.size
+        val energyBefore2 = victim2.energy
+        r2.fireWeapon(p2)
+        val after = r2.projectiles.size + r2.mines.size
+        val effect = when (wt) {
+            WeaponType.LASER -> victim2.energy < energyBefore2
+            else -> after > before
+        }
+        check("fire $wt produces effect", effect)
+    }
+
+    // --- upgrade math ---
+    run {
+        val vs2 = VehicleState(true, 1, 1, 1, 1)
+        val r3 = Racer(Catalog.VEHICLES[5], vs2, true, 1f)
+        var cost = 0
+        for (lvl in 1 until 10) { cost += Catalog.upgradeCost(5, lvl) }
+        vs2.e = 10; vs2.w = 10
+        val dmg1 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 1), true, 1f).weaponDamage()
+        val dmg10 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 10), true, 1f).weaponDamage()
+        val spd1 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 1), true, 1f).maxSpeed()
+        val spd10 = Racer(Catalog.VEHICLES[5], VehicleState(true, 10, 1, 1, 1), true, 1f).maxSpeed()
+        check("upgrade costs scale and are positive", cost > 0 && Catalog.upgradeCost(5, 2) > Catalog.upgradeCost(5, 1))
+        check("weapon lvl10 boosts damage", dmg10 > dmg1 * 1.6f)
+        check("engine lvl10 boosts speed", spd10 > spd1 * 1.3f)
+        println("      full engine upgrade cost: $cost CR; dmg ${"%.1f".format(dmg1)} -> ${"%.1f".format(dmg10)}")
+    }
+
+    // --- XRP client (live network) ---
+    val li = Xrp.ledgerIndex(Xrp.MAINNET_RPC)
+    println("      mainnet ledger index: $li")
+    check("XRP ledger index reachable", li > 0)
+    // real account with real envelope-format history: parser must normalize {"tx":..., "meta":..., "validated":...}
+    val realAddr = "rLCNiHdL4CPgSRJcBu5QE5GxadqKTrUjm5"
+    val txs = Xrp.accountTxs(Xrp.MAINNET_RPC, realAddr, li - 2000)
+    check("account_tx parses real envelopes", txs.isNotEmpty())
+    if (txs.isNotEmpty()) {
+        val t = txs.first()
+        check("normalized tx has flat fields + meta", t.has("meta") && t.optString("TransactionType").isNotEmpty() && t.has("date"))
+        println("      sample tx: type=${t.optString("TransactionType")} date=${t.optLong("date")} result=${t.optJSONObject("meta")?.optString("TransactionResult")}")
+    }
+
+    // --- invoice verification unit tests (envelope-style fixtures) ---
+    val now = System.currentTimeMillis()
+    val inv = Invoice("v5", 10_000_000L, 42L, now - 60_000L, now + 29 * 60_000L)
+    val merchant = "rMerchantAddressXXXXXXXXXXXXXXXXXXXXX"
+    val rippleNow = (now - 946684800000L) / 1000
+    fun envelope(dest: String, tag: Long, delivered: Any, result: String = "tesSUCCESS", dateSec: Long = rippleNow, hash: String = "H${(0..999999).random()}") = JSONObject()
+        .put("tx", JSONObject()
+            .put("hash", hash).put("TransactionType", "Payment").put("Destination", dest)
+            .put("DestinationTag", tag).put("date", dateSec))
+        .put("meta", JSONObject().put("TransactionResult", result).put("delivered_amount", delivered))
+        .put("validated", true)
+    fun flat(envelope: JSONObject): JSONObject = envelope // verifyPayment receives the normalized form
+    fun norm(e: JSONObject): JSONObject {
+        val inner = e.getJSONObject("tx")
+        inner.put("meta", e.get("meta"))
+        inner.put("validated", e.optBoolean("validated"))
+        return inner
+    }
+    check("valid envelope payment verified", Xrp.verifyPayment(norm(envelope(merchant, 42, "10000000")), inv, merchant, emptySet()).ok)
+    check("wrong tag rejected", !Xrp.verifyPayment(norm(envelope(merchant, 43, "10000000")), inv, merchant, emptySet()).ok)
+    check("wrong destination rejected", !Xrp.verifyPayment(norm(envelope("rOtherXXXXXXXXXXXXXXXXXXXXXXXXXXX", 42, "10000000")), inv, merchant, emptySet()).ok)
+    check("underpay rejected", !Xrp.verifyPayment(norm(envelope(merchant, 42, "9000000")), inv, merchant, emptySet()).ok)
+    check("IOU rejected", !Xrp.verifyPayment(norm(envelope(merchant, 42, JSONObject(mapOf("currency" to "USD")))), inv, merchant, emptySet()).ok)
+    check("failed tx (tec) rejected", !Xrp.verifyPayment(norm(envelope(merchant, 42, "10000000", result = "tecPATH_DRY")), inv, merchant, emptySet()).ok)
+    check("reuse rejected", !Xrp.verifyPayment(norm(envelope(merchant, 42, "10000000", hash = "USED1")), inv, merchant, setOf("USED1")).ok)
+    check("non-payment rejected", run {
+        val e = envelope(merchant, 42, "10000000")
+        e.getJSONObject("tx").put("TransactionType", "TrustSet")
+        !Xrp.verifyPayment(norm(e), inv, merchant, emptySet()).ok
+    })
+    check("stale tx rejected (before invoice)", !Xrp.verifyPayment(norm(envelope(merchant, 42, "10000000", dateSec = (now - 86_400_000L - 946684800000L) / 1000)), inv, merchant, emptySet()).ok)
+    check("network error handled without throwing", run {
+        try { Xrp.ledgerIndex("https://invalid.example.invalid/") >= -1 } catch (_: Exception) { false }
+    })
+
+    // --- combat across the start/finish line (natural shot crossing the wrap) ---
+    run {
+        val shooter = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f) // PLASMA
+        val victim = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val tr = tracks[2]
+        val r = Race(tr, listOf(shooter, victim), 0)
+        r.countdown = 0f
+        // shooter just BEFORE the finish line fires forward; victim just AFTER it
+        shooter.z = tr.trackLength - 1000f
+        victim.z = 1500f
+        shooter.x = 0.1f
+        victim.x = 0.1f
+        victim.energy = 200
+        shooter.speed = 0f
+        victim.speed = 0f
+        shooter.ammo = 5
+        r.fireWeapon(shooter) // natural plasma bolt from trackLength-1000+300, moving forward
+        check("shot fired across the line exists", r.projectiles.isNotEmpty())
+        var t = 0f
+        var hit = false
+        while (t < 3f && !hit) {
+            r.update(1 / 60f, PlayerInput(), (t * 1000).toLong())
+            if (victim.energy < 200) hit = true
+            t += 1 / 60f
+        }
+        check("shot fired before the line damages racer after the line", hit)
+    }
+
+    // --- reflection across the wrap boundary ---
+    run {
+        val shooter = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f)
+        val victim = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val tr = tracks[3]
+        val r = Race(tr, listOf(shooter, victim), 0)
+        r.countdown = 0f
+        victim.reflectT = 30f
+        shooter.z = tr.trackLength - 1000f
+        victim.z = 1500f
+        shooter.x = 0f
+        victim.x = 0f
+        shooter.energy = 200
+        shooter.speed = 0f
+        victim.speed = 0f
+        shooter.ammo = 5
+        r.fireWeapon(shooter)
+        var t = 0f
+        var damaged = false
+        while (t < 6f && !damaged) {
+            r.update(1 / 60f, PlayerInput(), (t * 1000).toLong())
+            if (shooter.energy < 200) damaged = true
+            t += 1 / 60f
+        }
+        check("reflected shot crosses the line back to the shooter", damaged)
+    }
+
+    // --- unvalidated payment rejected ---
+    run {
+        val now2 = System.currentTimeMillis()
+        val inv2 = Invoice("v6", 10_000_000L, 7L, now2 - 60_000L, now2 + 29 * 60_000L)
+        val merchant2 = "rMerchantAddressXXXXXXXXXXXXXXXXXXXXX"
+        val rippleNow2 = (now2 - 946684800000L) / 1000
+        val unvalidated = JSONObject()
+            .put("tx", JSONObject().put("hash", "UV1").put("TransactionType", "Payment")
+                .put("Destination", merchant2).put("DestinationTag", 7L).put("date", rippleNow2))
+            .put("meta", JSONObject().put("TransactionResult", "tesSUCCESS").put("delivered_amount", "10000000"))
+            .put("validated", false)
+        val inner = unvalidated.getJSONObject("tx")
+        inner.put("meta", unvalidated.get("meta")); inner.put("validated", false)
+        check("unvalidated payment rejected", !Xrp.verifyPayment(inner, inv2, merchant2, emptySet()).ok)
+    }
+
+    runV11Tests(::check)
+
+    println("\n$pass passed, $fail failed")
+    if (fail > 0) kotlin.system.exitProcess(1)
+}

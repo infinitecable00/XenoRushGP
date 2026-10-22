@@ -1,0 +1,19 @@
+# Gradle / Android build output
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+captures/
+.idea/
+*.iml
+.DS_Store
+
+# Firebase config is project-specific. It is not secret, but keep it out of the
+# public history unless you want it there. Remove this line to commit it.
+app/google-services.json
+
+# Never commit release signing keys
+*.keystore
+release*.jks

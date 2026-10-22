@@ -1,0 +1,207 @@
+# XenoRush GP
+
+An F-Zero-inspired futuristic combat racer for Android, with on-track power-ups, vehicle
+weapons, a 1-10 upgrade scale, 30 tracks, 22 vehicles, XRP-powered unlocks, optional Google
+sign-in with cloud save, and 2-4 player online multiplayer.
+
+> **Status: development prototype (v1.1).** The APK builds cleanly and the game logic is
+> covered by an automated 108-check JVM test suite (full simulated race, live XRPL mainnet
+> queries, live XRP price, save merging, and a simulated two-device multiplayer match).
+> It has NOT been run on a real Android device yet. Google sign-in, cloud save and
+> multiplayer need a Firebase project (see below) and have not been tested against a live
+> Firebase backend. XRP purchases stay disabled until `MERCHANT_ADDRESS` is set in `Xrp.kt`.
+
+## Features
+
+- **Pseudo-3D racing engine** (SNES F-Zero style): curves, hills, rumble strips, neon void
+- **30 tracks**: 5 free, 25 in the **Track Pack**
+- **22 vehicles**: 5 free, 17 paid, progressively better stats
+- **Power-ups on track**: Shield, Reflect (bounces projectiles back at the shooter),
+  Speed boost, Repair (+35 energy), Ammo (+3 shots)
+- **Weapons per vehicle**: Plasma Cannon, Homing Missiles, Proximity Mines, Pulse Laser
+- **Upgrades 1-10** per vehicle (Engine, Thrusters, Stabilizers, Weapon). Every vehicle,
+  including free ones, can be upgraded to 10 with credits earned by racing, or instantly
+  for $0.99 per level in XRP
+- **8-car single-player races** vs AI: 3 laps, lap records, first-win bonuses
+- **Online multiplayer**: 2-4 human players, quick match
+- **Google sign-in + cloud save** across devices
+
+## Pricing (USD, paid in XRP at the live rate)
+
+| Item | Price |
+|---|---|
+| One upgrade level (any stat, any owned vehicle) | $0.99 |
+| Each paid vehicle (17) | $2.50 |
+| Track Pack (all 25 paid tracks) | $9.99 |
+
+Prices live in `Pricing.kt`. When a player starts a purchase, the game reads the live
+XRP/USD rate and locks that XRP amount into a 30-minute invoice, rounded up to the next
+0.01 XRP. Price sources, in order: the XRP Ledger's own XRP/RLUSD AMM pool (same public node
+used for payment checks), then CoinGecko, then Kraken. When offline, prices show
+"XRP N/A offline" and checkout is disabled.
+
+## Offline-first
+
+- **Single player never needs an internet connection.** Racing, garage, credit upgrades,
+  and saving all work offline. Progress is saved on the device after every change.
+- Online-only features show **N/A** when there is no connection: XRP prices, checkout and
+  the wallet payment check, Google sign-in, cloud sync, and multiplayer ("Multiplayer needs
+  an internet connection").
+- Firebase is never contacted unless the player is signed in and online (background cloud
+  sync, at most once a minute) or opens Account / Multiplayer.
+
+## Building
+
+Requirements: Android Studio (or Gradle 8.5 + JDK 17 + Android SDK 34).
+
+```
+./gradlew assembleDebug
+```
+
+APK output: `app/build/outputs/apk/debug/app-debug.apk`
+
+Install on a device: `adb install app-debug.apk` (enable "install from unknown sources").
+
+For a Play-Store-style release build, create a keystore and configure `app/build.gradle.kts`
+signing, then `./gradlew assembleRelease`.
+
+## XRP payments — how it works
+
+1. Set `MERCHANT_ADDRESS` in `app/src/main/java/com/denoya/xenorush/Xrp.kt` to your
+   receiving XRP wallet address (starts with `r...`). It is developer-controlled and not
+   player-editable, so players cannot redirect payments to themselves. XRP purchases stay
+   disabled until you set it.
+2. Choose the network in Settings: **TESTNET** (default, play money) or **MAINNET** (real XRP).
+3. Players buy a vehicle, an upgrade level, or the Track Pack. The game creates an invoice:
+   - unique **destination tag** per invoice
+   - exact XRP amount (USD price converted at the live rate, locked for the invoice)
+   - 30-minute expiry
+4. The player pays from **any wallet** (Xaman, XRP Toolkit, exchange withdrawal) to your
+   address with that destination tag.
+5. The game polls the public XRPL JSON-RPC API and verifies the payment:
+   - validated Payment transaction
+   - correct destination and destination tag
+   - **delivered amount** (not just requested) covers the price
+   - XRP only (IOU payments rejected), no invoice-hash reuse
+
+USD prices are defined in `Pricing.kt` and are easy to change.
+
+### Testing payments
+
+- Set the wallet address to a **testnet** account (get one + funds from the XRPL testnet
+  faucet at https://faucet.altnet.rippletest.net/), leave network on TESTNET, and pay with
+  testnet XRP. The unlock flow is identical to mainnet.
+- Testnet RPC: `https://s.altnet.rippletest.net:51234/` • Mainnet RPC: `https://s1.ripple.com:51234/`
+
+### Security notes (important)
+
+- The game **never** asks for private keys or seed phrases — payments go wallet-to-wallet.
+- Entitlements are stored **on-device** and in the player's own cloud save. A rooted or
+  modified client could bypass unlock checks or edit its cloud save. For a commercial launch,
+  move invoice creation + verification to a small backend (for example a Firebase Cloud
+  Function) that writes entitlements the client cannot edit. The verification logic in `Xrp.kt` is written so
+  it can be lifted to a server as-is.
+- **Store policy**: Distribution and store-payment-policy review has not been completed.
+  Google Play generally requires digital goods to be sold through Play Billing; check the
+  current Play policy and each alternative store's rules before distributing - do not
+  assume XRP payments are permitted anywhere without verification.
+
+
+## Google sign-in, cloud save and multiplayer setup (Firebase)
+
+These features use a free Firebase project that you own. Without it the game builds and runs
+normally; Account shows "Online features not configured".
+
+1. Go to https://console.firebase.google.com and create a project.
+2. **Add an Android app** with package name `com.denoya.xenorush`.
+3. Add the **SHA-1** fingerprint of the signing key. Debug builds of this project are signed
+   with the committed key `keystore/xenorush-debug.jks`, so the fingerprint is the same on
+   every machine:
+   ```
+   SHA-1:   E4:0B:06:16:52:81:6E:58:15:F9:AE:13:8E:DF:CB:35:24:C4:B1:39
+   SHA-256: 8E:F1:BB:16:83:A9:58:B4:91:67:3A:F0:41:05:F4:76:33:7B:81:B4:EA:81:B3:4E:5A:4A:C5:9D:7D:84:66:30
+   ```
+   (Check it yourself with `keytool -list -v -keystore keystore/xenorush-debug.jks -storepass xenorush`.)
+4. **Authentication** > Sign-in method > enable **Google**.
+5. **Firestore Database** > create database, then paste `firebase/firestore.rules` into Rules.
+6. **Realtime Database** > create database, then paste `firebase/database.rules.json` into Rules.
+7. Download **google-services.json** (after steps 4-6, so it includes the web client ID and
+   database URL) and put it at `app/google-services.json`. Rebuild. The Google Services
+   Gradle plugin is applied automatically when that file exists.
+
+For a public release, create your own private release key, add its SHA-1 in Firebase too,
+and never commit it.
+
+### How cloud save works
+
+- Saved in Firestore at `users/{uid}`; only the signed-in player can read or write it.
+- Synced on sign-in, after purchases, from the Account screen, and in the background
+  (at most once a minute when signed in and online).
+- Merge rules (`SaveMerge` in `Model.kt`): owned vehicles/tracks are combined, upgrade levels
+  take the highest, used payment hashes are combined, best laps take the fastest, and credits
+  come from whichever device changed most recently. Settings stay per-device.
+
+### How multiplayer works
+
+- Quick match on Firebase Realtime Database. Players join an open room or create one.
+- The race starts when 4 players are in, or 15 seconds after the second player joins. The
+  green light uses the server clock, so every device starts together.
+- Track: the host's selected track if every player owns it, otherwise a random free track.
+- Each device simulates only its own vehicle and publishes its position 10 times a second.
+  Other racers are smoothed proxies. Shots, mines and lasers are sent as events, and each
+  device applies damage only to its own racer (shield / reflect are decided by the victim).
+- Requires sign-in and an internet connection. Leaving or disconnecting removes you from
+  the room.
+- Multiplayer uses the client's own state (no anti-cheat server). Fine for friends and
+  testing; a public competitive launch would need server-side validation.
+
+## Project layout
+
+```
+app/src/main/java/com/denoya/xenorush/
+├── MainActivity.kt   — fullscreen host activity
+├── GameView.kt       — SurfaceView + 60fps game loop
+├── Game.kt           — state machine, menus, shop, payment flow, race lifecycle
+├── Render.kt         — pseudo-3D renderer, HUD, touch controls
+├── Race.kt           — race simulation: physics, AI, power-ups, weapons, laps
+├── TrackGen.kt       — deterministic procedural track builder (30 tracks)
+├── Catalog.kt        — 22 vehicles, 30 tracks, upgrade costs
+├── Pricing.kt        — USD prices, XRP conversion, item ids
+├── PriceOracle.kt    — live XRP/USD (XRPL AMM, CoinGecko, Kraken)
+├── Model.kt          — save model, JSON codec, cloud merge rules
+├── Save.kt           — local save file
+├── Net.kt            — connectivity check
+├── Cloud.kt          — Google sign-in (Credential Manager + Firebase Auth), Firestore save
+├── MpSession.kt      — multiplayer matchmaking, host logic, race link (pure Kotlin)
+├── MpFirebase.kt     — multiplayer transport on Firebase Realtime Database
+├── Xrp.kt            — XRPL JSON-RPC client + payment verification
+└── Util.kt           — math helpers, constants
+```
+
+## Controls
+
+- Bottom-left: ◀ ▶ steering
+- Bottom-right: GAS (large), BRK (brake), FIRE (weapon)
+- Tap the top-right area during a race to pause
+
+## Verified by automated tests
+
+A JVM test harness (copies of the pure-Kotlin files) passes 108/108 checks. v1.1 added:
+USD-to-XRP conversion that never underpays, price parsing for all three sources plus a live
+fetch, item-id validation, save round-trip and corrupt-save recovery, every cloud merge rule,
+and a simulated two-device multiplayer match over an in-memory transport (matchmaking,
+15-second fill window, single host start, track fallback, identical grid, position sync,
+remote damage only on the victim's device, reflected shots and lasers hurting the shooter,
+and disconnect handling). Earlier checks include: a full 3-lap race with
+power-up pickups and weapon fire; projectile reflection bouncing back to damage the
+original shooter; laser damage; AI staying on the road; parsing of real account_tx
+envelope responses from XRPL mainnet; and rejection of underpaid/wrong-tag/wrong-destination/
+IOU/failed/reused/stale payments. The APK builds cleanly with `assembleDebug`, both with and
+without `google-services.json`.
+
+### Running the tests
+
+`jvm-tests/` holds copies of the pure-Kotlin game files plus the test suite. After editing
+game code, copy the changed files from `app/src/main/java/com/denoya/xenorush/` into
+`jvm-tests/src/main/kotlin/`, then run `gradle run` in `jvm-tests/` (needs JDK 17 and network
+access for the live XRPL/price checks).
