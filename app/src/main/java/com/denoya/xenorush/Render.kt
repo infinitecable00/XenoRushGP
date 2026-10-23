@@ -110,6 +110,7 @@ class Renderer {
         c.restore()
 
         drawHud(c, race, w, h, ui)
+        drawMirror(c, race, track, mirrorRect(w, h))
     }
 
     private fun project(p: Point, camX: Float, camY: Float, camZ: Float, camDepth: Float, w: Int, h: Int) {
@@ -126,13 +127,14 @@ class Renderer {
         c.drawRect(0f, 0f, w.toFloat(), h * 0.56f, skyPaint)
         // sun/planet glow
         paint.color = Color.argb(90, 255, 255, 255)
-        c.drawCircle(w * 0.5f, h * 0.34f, w * 0.16f, paint)
+        val sr = minOf(w, h).toFloat()
+        c.drawCircle(w * 0.5f, h * 0.34f, sr * 0.16f, paint)
         paint.color = Color.argb(160, 255, 240, 200)
-        c.drawCircle(w * 0.5f, h * 0.34f, w * 0.09f, paint)
+        c.drawCircle(w * 0.5f, h * 0.34f, sr * 0.09f, paint)
         // stars
         paint.color = Color.argb(120, 255, 255, 255)
         val starRng = kotlin.random.Random(track.def.seed)
-        for (i in 0 until 24) {
+        for (i in 0 until 40) {
             val sx = starRng.nextFloat() * w
             val sy = starRng.nextFloat() * h * 0.2f
             c.drawCircle(sx, sy, 1.4f, paint)
@@ -331,7 +333,7 @@ class Renderer {
     private fun drawPlayerCar(c: Canvas, w: Int, h: Int, player: Racer, input: PlayerInput) {
         val cx = w / 2f
         val bottomY = h * 0.86f
-        val halfW = w * 0.11f
+        val halfW = minOf(w * 0.11f, h * 0.19f)
         val steer = (if (input.left) -1f else 0f) + (if (input.right) 1f else 0f)
         val bob = sin(System.currentTimeMillis() / 90.0).toFloat() * halfW * 0.03f
         drawCarShape(c, cx, bottomY + bob, halfW, player.vehicle.color, steer)
@@ -345,14 +347,14 @@ class Renderer {
             paint.color = Color.argb(30 + player.shield, 80, 190, 255)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 4f
-            c.drawCircle(cx, bottomY - halfW * 0.4f, halfW * 1.5f, paint)
+            c.drawCircle(cx, bottomY - halfW * 0.4f, halfW * 1.25f, paint)
             paint.style = Paint.Style.FILL
         }
         if (player.reflectT > 0f) {
             paint.color = Color.argb(50, 200, 130, 255)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 4f
-            c.drawCircle(cx, bottomY - halfW * 0.4f, halfW * 1.7f, paint)
+            c.drawCircle(cx, bottomY - halfW * 0.4f, halfW * 1.4f, paint)
             paint.style = Paint.Style.FILL
         }
     }
@@ -361,15 +363,20 @@ class Renderer {
 
     fun drawHud(c: Canvas, race: Race, w: Int, h: Int, ui: RaceUi) {
         val player = race.player
-        // top bar
-        paint.color = Color.argb(140, 5, 8, 18)
-        c.drawRect(0f, 0f, w.toFloat(), h * 0.115f, paint)
+        val u = h / 100f
+        val panel = Color.argb(150, 5, 8, 18)
 
-        // energy bar
-        val ebX = w * 0.04f
-        val ebY = h * 0.045f
-        val ebW = w * 0.42f
-        val ebH = h * 0.018f
+        // ---- left panel: hull + shield ----
+        paint.color = panel
+        c.drawRoundRect(RectF(1.5f * u, 1.5f * u, w * 0.27f, 18f * u), 2f * u, 2f * u, paint)
+        val ebX = 3.5f * u
+        val ebW = w * 0.27f - 5.5f * u
+        val ebY = 7f * u
+        val ebH = 2.6f * u
+        textPaint.textAlign = Paint.Align.LEFT
+        textPaint.color = Color.argb(235, 200, 210, 255)
+        textPaint.textSize = 3.4f * u
+        c.drawText("HULL ${player.energy}/${Arms.MAX_HULL}", ebX, ebY - 1f * u, textPaint)
         paint.color = Color.argb(255, 40, 40, 60)
         c.drawRect(ebX, ebY, ebX + ebW, ebY + ebH, paint)
         val pct = player.energy.toFloat() / player.maxEnergy().toFloat()
@@ -379,98 +386,218 @@ class Renderer {
             else -> Color.argb(255, 255, 80, 60)
         }
         c.drawRect(ebX, ebY, ebX + ebW * clamp(pct, 0f, 1f), ebY + ebH, paint)
-        textPaint.color = Color.argb(230, 200, 210, 255)
-        textPaint.textSize = h * 0.02f
-        c.drawText("HULL ${player.energy}/${Arms.MAX_HULL}", ebX, ebY - h * 0.008f, textPaint)
-        // shield bar
-        val sbY = ebY + ebH + h * 0.022f
+        val sbY = 14f * u
+        textPaint.textSize = 2.9f * u
+        c.drawText("SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - 0.9f * u, textPaint)
         paint.color = Color.argb(255, 30, 40, 70)
-        c.drawRect(ebX, sbY, ebX + ebW, sbY + ebH * 0.7f, paint)
+        c.drawRect(ebX, sbY, ebX + ebW, sbY + ebH * 0.75f, paint)
         paint.color = Color.argb(255, 80, 190, 255)
-        c.drawRect(ebX, sbY, ebX + ebW * clamp(player.shield / Arms.MAX_SHIELD.toFloat(), 0f, 1f), sbY + ebH * 0.7f, paint)
-        textPaint.textSize = h * 0.016f
-        c.drawText("SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - h * 0.004f, textPaint)
+        c.drawRect(ebX, sbY, ebX + ebW * clamp(player.shield / Arms.MAX_SHIELD.toFloat(), 0f, 1f), sbY + ebH * 0.75f, paint)
 
-        // lap / position
-        textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = h * 0.032f
-        textPaint.color = Color.WHITE
-        c.drawText("LAP ${minOf(player.lap + 1, C.LAPS)}/${C.LAPS}", w * 0.5f, h * 0.045f, textPaint)
-        textPaint.textSize = h * 0.024f
-        c.drawText("POS ${race.rank(player)}/${race.racers.size}", w * 0.5f, h * 0.078f, textPaint)
+        // ---- lap / position (between hull panel and mirror) ----
+        paint.color = panel
+        c.drawRoundRect(RectF(w * 0.28f, 1.5f * u, w * 0.36f, 18f * u), 2f * u, 2f * u, paint)
+        drawTextCentered(c, "LAP ${minOf(player.lap + 1, C.LAPS)}/${C.LAPS}", w * 0.32f, 8.5f * u, 4.6f * u, Color.WHITE, Paint.Align.CENTER, w * 0.074f)
+        drawTextCentered(c, "POS ${race.rank(player)}/${race.racers.size}", w * 0.32f, 15f * u, 4f * u, Color.argb(255, 255, 214, 90), Paint.Align.CENTER, w * 0.074f)
 
-        // time + speed
-        textPaint.textAlign = Paint.Align.RIGHT
-        textPaint.textSize = h * 0.022f
-        c.drawText(fmtTime(race.raceTimeMs), w * 0.96f, h * 0.03f, textPaint)
+        // ---- time + speed (right of mirror) ----
+        val L = CtrlLayout(w, h)
+        paint.color = panel
+        c.drawRoundRect(RectF(w * 0.64f, 1.5f * u, L.pause.left - 1.5f * u, 18f * u), 2f * u, 2f * u, paint)
+        val rx = L.pause.left - 3.5f * u
+        drawTextCentered(c, fmtTime(race.raceTimeMs), rx, 6.5f * u, 3.6f * u, Color.WHITE, Paint.Align.RIGHT)
         val kmh = (player.speed * 0.045f).toInt()
-        textPaint.textSize = h * 0.045f
-        textPaint.color = if (player.boostT > 0f) Color.argb(255, 90, 255, 200) else Color.WHITE
-        c.drawText("$kmh", w * 0.93f, h * 0.075f, textPaint)
-        textPaint.textSize = h * 0.018f
-        c.drawText("km/h", w * 0.96f, h * 0.095f, textPaint)
+        drawTextCentered(c, "$kmh", rx - 9f * u, 15.5f * u, 7.5f * u, if (player.boostT > 0f) Color.argb(255, 90, 255, 200) else Color.WHITE, Paint.Align.RIGHT)
+        drawTextCentered(c, "km/h", rx, 15.5f * u, 3f * u, Color.argb(220, 170, 180, 220), Paint.Align.RIGHT)
 
-        // buff timers
+        // ---- pause button ----
+        paint.color = panel
+        c.drawRoundRect(L.pause, 2f * u, 2f * u, paint)
+        paint.color = Color.WHITE
+        val pc = L.pause.centerX()
+        val py = L.pause.centerY()
+        c.drawRect(pc - 2.4f * u, py - 3.5f * u, pc - 0.9f * u, py + 3.5f * u, paint)
+        c.drawRect(pc + 0.9f * u, py - 3.5f * u, pc + 2.4f * u, py + 3.5f * u, paint)
+
+        // ---- buff timers (under the hull panel) ----
         textPaint.textAlign = Paint.Align.LEFT
-        textPaint.textSize = h * 0.02f
-        var by = h * 0.14f
-        if (player.reflectT > 0f) { textPaint.color = Color.argb(255, 200, 130, 255); c.drawText("REFLECT ${player.reflectT.toInt()}s", w * 0.04f, by, textPaint); by += h * 0.03f }
-        if (player.boostT > 0f) { textPaint.color = Color.argb(255, 90, 255, 170); c.drawText("BOOST ${player.boostT.toInt()}s", w * 0.04f, by, textPaint) }
+        textPaint.textSize = 3.6f * u
+        var by = 24f * u
+        if (player.reflectT > 0f) { textPaint.color = Color.argb(255, 200, 130, 255); c.drawText("REFLECT ${player.reflectT.toInt()}s", 3f * u, by, textPaint); by += 5f * u }
+        if (player.boostT > 0f) { textPaint.color = Color.argb(255, 90, 255, 170); c.drawText("BOOST ${player.boostT.toInt()}s", 3f * u, by, textPaint) }
 
-        // events
-        textPaint.textAlign = Paint.Align.CENTER
-        textPaint.textSize = h * 0.026f
-        var shown = race.events.takeLast(3)
+        // ---- events (below the mirror) ----
+        val shown = race.events.takeLast(3)
         shown.forEachIndexed { i, e ->
-            textPaint.color = Color.argb(230 - i * 60, 255, 230, 120)
-            c.drawText(e, w * 0.5f, h * 0.16f + i * h * 0.032f, textPaint)
+            drawTextCentered(c, e, w * 0.5f, 31f * u + i * 5f * u, 3.8f * u, Color.argb(230 - i * 60, 255, 230, 120), Paint.Align.CENTER, w * 0.5f)
         }
         if (race.events.size > 6) {
             val n = race.events.size - 6
             race.events.subList(0, n).clear()
         }
 
-        // weapons readout (left side, above steering)
+        // ---- weapons readout (left side, above steering) ----
         textPaint.textAlign = Paint.Align.LEFT
-        textPaint.textSize = h * 0.021f
-        var ay = h - h * 0.30f
+        textPaint.textSize = 3.5f * u
+        var ay = 44f * u
         val lines = listOf(
             "GUN  ${player.bullets}/${Arms.MAX_BULLETS}  (${player.bulletDamage().toInt()}hp)" to Color.argb(255, 255, 240, 140),
             "ROCKETS  ${player.rockets}/${Arms.MAX_ROCKETS}" to Color.argb(255, 255, 150, 110),
             "MISSILES  " + (if (player.missiles.isEmpty()) "-" else player.missiles.joinToString(" ") { Arms.short(it) }) to Color.argb(255, 140, 210, 255),
             "MINES  ${player.mines}/${Arms.MAX_MINES}" to Color.argb(255, 255, 110, 110)
         )
-        for ((t, col) in lines) { textPaint.color = col; c.drawText(t, w * 0.04f, ay, textPaint); ay += h * 0.027f }
+        paint.color = Color.argb(110, 5, 8, 18)
+        c.drawRoundRect(RectF(1.5f * u, ay - 4.6f * u, w * 0.2f, ay + 3 * 5.2f * u + 2f * u), 2f * u, 2f * u, paint)
+        for ((t, col) in lines) { textPaint.color = col; c.drawText(t, 3f * u, ay, textPaint); ay += 5.2f * u }
 
-        // countdown
+        // ---- countdown ----
         if (race.countdown > 0f) {
-            textPaint.textAlign = Paint.Align.CENTER
-            textPaint.textSize = h * 0.16f
-            textPaint.color = when {
+            val col = when {
                 race.countdown > 3f -> Color.argb(255, 255, 90, 90)
                 race.countdown > 2f -> Color.argb(255, 255, 180, 60)
                 race.countdown > 1f -> Color.argb(255, 120, 255, 120)
                 else -> Color.WHITE
             }
             val label = if (race.countdown > 3f) "3" else if (race.countdown > 2f) "2" else if (race.countdown > 1f) "1" else "GO!"
-            c.drawText(label, w * 0.5f, h * 0.4f, textPaint)
+            drawTextCentered(c, label, w * 0.5f, 56f * u, 24f * u, col)
         }
 
         // controls
         drawControls(c, w, h, ui)
     }
 
+    // ---------------- rear-view mirror ----------------
+
+    /** Top-middle of the screen, between the lap panel and the speed panel. */
+    fun mirrorRect(w: Int, h: Int): RectF = RectF(w * 0.37f, h * 0.015f, w * 0.63f, h * 0.215f)
+
+    private val rvA = RearView.Pt()
+    private val rvB = RearView.Pt()
+    private val mirrorClip = android.graphics.Path()
+
+    fun drawMirror(c: Canvas, race: Race, track: Track, rect: RectF) {
+        val rv = RearView(track, race.player)
+        val mw = rect.width()
+        val mh = rect.height()
+        val cx = rect.centerX()
+        val cy = rect.top + mh * 0.40f
+        val corner = mh * 0.16f
+        fun sx(p: RearView.Pt) = cx + p.x * mw / 2f
+        fun sy(p: RearView.Pt) = cy - p.y * mh / 2f
+        fun sw(p: RearView.Pt) = p.w * mw / 2f
+
+        c.save()
+        mirrorClip.reset()
+        mirrorClip.addRoundRect(rect, corner, corner, android.graphics.Path.Direction.CW)
+        c.clipPath(mirrorClip)
+        // sky + void ground
+        paint.color = track.def.skyTop
+        c.drawRect(rect.left, rect.top, rect.right, cy, paint)
+        paint.color = track.def.skyBottom
+        c.drawRect(rect.left, cy - mh * 0.08f, rect.right, cy, paint)
+        paint.color = Color.argb(255, 8, 9, 16)
+        c.drawRect(rect.left, cy, rect.right, rect.bottom, paint)
+
+        // road, near to far, skipping anything hidden behind a crest
+        var maxy = rect.bottom
+        for (k in 0 until RearView.SEGMENTS) {
+            val s = rv.seg(k)
+            if (!rv.project(0f, s.p2.worldY, rv.nearDist(k), rv.xNear[k], rvA)) continue
+            if (!rv.project(0f, s.p1.worldY, rv.farDist(k), rv.xFar[k], rvB)) continue
+            val x1 = sx(rvA); val y1 = sy(rvA); val l1 = sw(rvA)
+            val x2 = sx(rvB); val y2 = sy(rvB); val l2 = sw(rvB)
+            if (y2 >= y1 || y2 >= maxy) continue
+            val bottom = minOf(y1, maxy)
+            val r1 = l1 / 6f
+            val r2 = l2 / 6f
+            val rumble = if (s.light) Color.argb(255, 230, 230, 240) else Color.argb(255, 90, 95, 130)
+            quad(c, x1 - l1 - r1, bottom, x1 + l1 + r1, bottom, x2 + l2 + r2, y2, x2 - l2 - r2, y2, rumble)
+            quad(c, x1 - l1, bottom, x1 + l1, bottom, x2 + l2, y2, x2 - l2, y2, if (s.light) track.def.roadLight else track.def.roadDark)
+            if (s.light) {
+                for (lane in 1 until C.LANES) {
+                    val o = -1f + 2f * lane / C.LANES
+                    val lx1 = x1 + l1 * o; val lx2 = x2 + l2 * o
+                    quad(c, lx1 - l1 / 30f, bottom, lx1 + l1 / 30f, bottom, lx2 + l2 / 30f, y2, lx2 - l2 / 30f, y2, Color.argb(150, 255, 255, 255))
+                }
+            }
+            maxy = y2
+        }
+
+        // things behind you, farthest first
+        class Item(val dist: Float, val draw: () -> Unit)
+        val items = ArrayList<Item>()
+        for ((r, p) in rv.racersBehind(race.racers)) {
+            val x = sx(p); val y = sy(p)
+            val hw = (sw(p) * 0.16f).coerceAtMost(mw * 0.16f)
+            if (hw < 1.5f) continue
+            items.add(Item(p.dist) {
+                drawCarShape(c, x, y, hw, r.vehicle.color, 0f)
+                // headlights: you're seeing the front of the car
+                paint.color = Color.argb(240, 255, 250, 210)
+                c.drawCircle(x - hw * 0.55f, y - hw * 0.2f, hw * 0.13f, paint)
+                c.drawCircle(x + hw * 0.55f, y - hw * 0.2f, hw * 0.13f, paint)
+            })
+        }
+        for (m in race.mines) {
+            if (!m.alive) continue
+            val p = RearView.Pt()
+            if (!rv.place(m.z, m.x, p)) continue
+            val x = sx(p); val y = sy(p); val rr = (sw(p) * 0.035f).coerceAtLeast(1.5f)
+            items.add(Item(p.dist) {
+                paint.color = Color.argb(80, 255, 60, 60); c.drawCircle(x, y, rr * 2.4f, paint)
+                paint.color = Color.argb(255, 200, 40, 40); c.drawCircle(x, y, rr, paint)
+            })
+        }
+        var incoming = false
+        for (pr in race.projectiles) {
+            if (!pr.alive) continue
+            val p = RearView.Pt()
+            if (!rv.place(pr.z, pr.x, p)) continue
+            val x = sx(p); val y = sy(p)
+            val threat = pr.target === race.player && pr.owner !== race.player
+            if (threat) incoming = true
+            val col = when {
+                threat -> Color.argb(255, 255, 60, 60)
+                pr.type == WeaponType.BULLET -> Color.argb(255, 255, 240, 120)
+                pr.type == WeaponType.ROCKET -> Color.argb(255, 255, 120, 60)
+                else -> Color.argb(255, 255, 200, 90)
+            }
+            val rr = ((if (pr.type == WeaponType.BULLET) 0.015f else 0.035f) * sw(p)).coerceAtLeast(if (threat) 3f else 1.5f)
+            items.add(Item(p.dist) {
+                paint.color = Color.argb(90, Color.red(col), Color.green(col), Color.blue(col)); c.drawCircle(x, y - rr, rr * 2.8f, paint)
+                paint.color = col; c.drawCircle(x, y - rr, rr, paint)
+            })
+        }
+        items.sortByDescending { it.dist }
+        items.forEach { it.draw() }
+        // slight glass tint
+        paint.color = Color.argb(28, 140, 200, 255)
+        c.drawRect(rect, paint)
+        c.restore()
+
+        // frame
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = mh * 0.045f
+        val blink = incoming && (System.currentTimeMillis() / 180) % 2 == 0L
+        paint.color = if (blink) Color.argb(255, 255, 60, 60) else Color.argb(255, 60, 66, 92)
+        c.drawRoundRect(rect, corner, corner, paint)
+        paint.style = Paint.Style.FILL
+        if (incoming) drawTextCentered(c, "MISSILE LOCK", cx, rect.bottom + mh * 0.17f, mh * 0.13f, Color.argb(255, 255, 80, 80))
+    }
+
     // ---------------- shared control layout (drawing + input use the same geometry) ----------------
 
+    /** Landscape layout sized from the screen height, so buttons stay thumb-sized on any phone. */
     class CtrlLayout(w: Int, h: Int) {
-        val cy: Float = h - h * 0.045f - w * 0.105f
-        val left = floatArrayOf(w * 0.10f, cy, w * 0.095f)
-        val right = floatArrayOf(w * 0.32f, cy, w * 0.095f)
-        val gas = floatArrayOf(w * 0.88f, cy, w * 0.10f)
-        val brake = floatArrayOf(w * 0.66f, cy, w * 0.09f)
-        val gun = floatArrayOf(w * 0.86f, cy - w * 0.24f, w * 0.09f)
-        val special = floatArrayOf(w * 0.64f, cy - w * 0.22f, w * 0.085f)
-        val cycle = floatArrayOf(w * 0.86f, cy - w * 0.44f, w * 0.065f)
+        private val u = h / 100f
+        val left = floatArrayOf(15f * u, 82f * u, 13f * u)
+        val right = floatArrayOf(44f * u, 82f * u, 13f * u)
+        val gas = floatArrayOf(w - 17f * u, 80f * u, 15f * u)
+        val brake = floatArrayOf(w - 49f * u, 85f * u, 11f * u)
+        val gun = floatArrayOf(w - 17f * u, 50f * u, 12f * u)
+        val special = floatArrayOf(w - 45f * u, 58f * u, 11f * u)
+        val cycle = floatArrayOf(w - 43f * u, 35f * u, 8f * u)
+        val pause = RectF(w - 15.5f * u, 1.5f * u, w - 1.5f * u, 18f * u)
     }
 
     private fun drawControls(c: Canvas, w: Int, h: Int, ui: RaceUi) {
@@ -512,12 +639,12 @@ class Renderer {
         c.drawText(label, rect.centerX(), ty, textPaint)
     }
 
-    fun drawTextCentered(c: Canvas, text: String, x: Float, y: Float, size: Float, color: Int, align: Paint.Align = Paint.Align.CENTER) {
+    fun drawTextCentered(c: Canvas, text: String, x: Float, y: Float, size: Float, color: Int, align: Paint.Align = Paint.Align.CENTER, maxWidth: Float = 0f) {
         textPaint.textAlign = align
         textPaint.color = color
         textPaint.textSize = size
         // shrink long lines so they never run off the screen
-        val maxW = c.width * 0.94f
+        val maxW = if (maxWidth > 0f) maxWidth else c.width * 0.94f
         val tw = textPaint.measureText(text)
         if (tw > maxW && tw > 0f) textPaint.textSize = size * maxW / tw
         c.drawText(text, x, y, textPaint)

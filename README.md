@@ -4,8 +4,8 @@ An F-Zero-inspired futuristic combat racer for Android, with on-track power-ups,
 weapons, a 1-10 upgrade scale, 30 tracks, 22 vehicles, XRP-powered unlocks, optional Google
 sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as "coming soon".
 
-> **Status: development prototype (v1.4).** The APK builds cleanly and the game logic is
-> covered by an automated 180-check JVM test suite (full simulated race, live XRPL mainnet
+> **Status: development prototype (v1.5).** The APK builds cleanly and the game logic is
+> covered by an automated 192-check JVM test suite (full simulated race, live XRPL mainnet
 > queries, live XRP price, save merging, and a simulated two-device multiplayer match).
 > It has NOT been run on a real Android device yet. Google sign-in, cloud save and
 > multiplayer need a Firebase project (see below) and have not been tested against a live
@@ -14,6 +14,9 @@ sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as 
 ## Features
 
 - **Pseudo-3D racing engine** (SNES F-Zero style): curves, hills, rumble strips, neon void
+- **Landscape** layout (works in either landscape direction) for the race and every menu
+- **Rearview mirror** at the top middle of the race screen: shows racers, missiles, rockets
+  and mines behind you; the frame flashes red with MISSILE LOCK when a missile is chasing you
 - **30 tracks**: 5 free, 25 in the **Track Pack**
 - **22 vehicles**: 5 free, 17 paid, progressively better stats
 - **Power-ups on track**: Shield (+50 shield), Reflect (bounces projectiles back at the
@@ -226,11 +229,14 @@ app/src/main/java/com/denoya/xenorush/
 - Bottom-left: ◀ ▶ steering
 - Bottom-right: GAS (large), BRK (brake), GUN (hold to auto-fire), special (fires the
   selected rocket / missile / mine), WPN (cycles the special weapon)
-- Tap the top-right area during a race to pause
+- Tap the pause button (top right) during a race to pause
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 180/180 checks. v1.4 added: music shuffle (each song once per cycle, no
+A JVM test harness (copies of the pure-Kotlin files) passes 192/192 checks. v1.5 added: the rearview mirror camera (cars behind
+show up centred, left/right the right way round like a real mirror, closer cars bigger,
+nothing ahead or out of range, wrap-around at the finish line, bends behind you, farthest-first
+draw order). v1.4 added: music shuffle (each song once per cycle, no
 back-to-back repeats, single-song loop, empty folder = silence), audio file detection,
 song titles from file names, and the music on/off setting. v1.3 added: rocket/missile/mine damage scaling (20-40, 55-75,
 40-60) checked in flight at levels 1 and 10, the level-5 credit cap, new stats in saves,
