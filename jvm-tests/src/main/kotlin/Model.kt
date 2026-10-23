@@ -33,6 +33,7 @@ class SaveData {
     var mainnet: Boolean = false
     var merchantAddress: String = ""
     var sound: Boolean = true
+    var music: Boolean = true
 
     fun vehicleState(id: Int): VehicleState = vehicles.getOrPut(id) {
         VehicleState(id < Catalog.FREE_VEHICLES, 1, 1, 1, 1)
@@ -85,7 +86,7 @@ object SaveCodec {
                     .put("usdCents", it.usdCents).put("xrpUsd", it.xrpUsd))
             }
             json.put("settings", JSONObject().put("mainnet", sd.mainnet)
-                .put("merchant", sd.merchantAddress).put("sound", sd.sound))
+                .put("merchant", sd.merchantAddress).put("sound", sd.sound).put("music", sd.music))
         }
         return json.toString()
     }
@@ -127,6 +128,7 @@ object SaveCodec {
                 sd.mainnet = st.optBoolean("mainnet", false)
                 sd.merchantAddress = st.optString("merchant", "")
                 sd.sound = st.optBoolean("sound", true)
+                sd.music = st.optBoolean("music", true)
             }
         } catch (_: Exception) {
             return SaveData()
@@ -164,7 +166,7 @@ object SaveMerge {
         out.usedTxHashes.addAll(local.usedTxHashes); out.usedTxHashes.addAll(remote.usedTxHashes)
         out.selectedVehicle = if (out.vehicleState(newer.selectedVehicle).owned) newer.selectedVehicle else 0
         out.pendingInvoice = local.pendingInvoice
-        out.mainnet = local.mainnet; out.merchantAddress = local.merchantAddress; out.sound = local.sound
+        out.mainnet = local.mainnet; out.merchantAddress = local.merchantAddress; out.sound = local.sound; out.music = local.music
         return out
     }
 }

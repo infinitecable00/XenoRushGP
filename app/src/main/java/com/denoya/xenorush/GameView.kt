@@ -85,6 +85,7 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         thread?.join(1500)
         thread = null
         game?.releaseAllControls()
+        game?.onAppPause()
         game?.let { g -> if (g.screen == Screen.RACE) g.screen = Screen.PAUSED }
     }
 

@@ -10,6 +10,11 @@ if (file("google-services.json").exists()) {
 }
 
 android {
+    // bundled race music is streamed straight from the APK (MediaPlayer needs it uncompressed)
+    androidResources {
+        noCompress += listOf("mp3", "ogg", "m4a", "aac", "wav", "flac")
+    }
+
     namespace = "com.denoya.xenorush"
     compileSdk = 34
 
@@ -17,8 +22,8 @@ android {
         applicationId = "com.denoya.xenorush"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.4.0"
     }
 
     signingConfigs {

@@ -4,8 +4,8 @@ An F-Zero-inspired futuristic combat racer for Android, with on-track power-ups,
 weapons, a 1-10 upgrade scale, 30 tracks, 22 vehicles, XRP-powered unlocks, optional Google
 sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as "coming soon".
 
-> **Status: development prototype (v1.3).** The APK builds cleanly and the game logic is
-> covered by an automated 171-check JVM test suite (full simulated race, live XRPL mainnet
+> **Status: development prototype (v1.4).** The APK builds cleanly and the game logic is
+> covered by an automated 180-check JVM test suite (full simulated race, live XRPL mainnet
 > queries, live XRP price, save merging, and a simulated two-device multiplayer match).
 > It has NOT been run on a real Android device yet. Google sign-in, cloud save and
 > multiplayer need a Firebase project (see below) and have not been tested against a live
@@ -32,6 +32,24 @@ sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as 
 - **Google sign-in + cloud save** across devices
 - **Updates screen** (what's new + check for updates) and **Credits screen**
   (Beam Galactic INC, support: support@beamgalactic.com)
+
+## Race music
+
+Race music is by **InfiniteCable**. A random song starts right after GO, every race. Songs
+are shuffled so each one plays before any repeats, never twice in a row; if a song ends
+mid-race the next one starts. Music pauses with the game (pause menu or app in the
+background) and fades out at the finish. Toggle it in Settings.
+
+Songs are bundled in the APK, so music works offline:
+
+1. Put audio files (mp3, ogg, m4a, aac, wav, flac) in `app/src/main/assets/music/`.
+2. Rebuild. No code changes needed.
+3. File names become the "NOW PLAYING" title: `03_Neon_Overdrive.mp3` shows as
+   "Neon Overdrive" (leading track numbers and "InfiniteCable - " are removed).
+
+Spotify can't be used for this: its developer policy prohibits using the Spotify Platform
+in games (https://developer.spotify.com/policy). Use your own master files instead.
+Tip: 192-256 kbps MP3 or OGG keeps the APK small (about 2-3 MB per 3-minute song).
 
 ## Combat
 
@@ -196,6 +214,7 @@ app/src/main/java/com/denoya/xenorush/
 ├── Save.kt           — local save file
 ├── Net.kt            — connectivity check
 ├── Cloud.kt          — Google sign-in (Credential Manager + Firebase Auth), Firestore save
+├── Music.kt / MusicLogic.kt — race music player + shuffle (assets/music/)
 ├── MpSession.kt      — multiplayer matchmaking, host logic, race link (pure Kotlin)
 ├── MpFirebase.kt     — multiplayer transport on Firebase Realtime Database
 ├── Xrp.kt            — XRPL JSON-RPC client + payment verification
@@ -211,7 +230,9 @@ app/src/main/java/com/denoya/xenorush/
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 171/171 checks. v1.3 added: rocket/missile/mine damage scaling (20-40, 55-75,
+A JVM test harness (copies of the pure-Kotlin files) passes 180/180 checks. v1.4 added: music shuffle (each song once per cycle, no
+back-to-back repeats, single-song loop, empty folder = silence), audio file detection,
+song titles from file names, and the music on/off setting. v1.3 added: rocket/missile/mine damage scaling (20-40, 55-75,
 40-60) checked in flight at levels 1 and 10, the level-5 credit cap, new stats in saves,
 old-save loading and cloud merge, paid upgrade ids for the new stats, random Shield and
 Reflect drops on all 30 courses (random per race, shared track data unchanged), drop

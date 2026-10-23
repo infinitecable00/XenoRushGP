@@ -19,8 +19,14 @@ enum class Screen { TITLE, MENU, TRACKS, GARAGE, VEHICLE, SHOP, PAY, SETTINGS, R
 
 /** In-game "Updates" screen: newest first. */
 object Changelog {
-    const val VERSION = "1.3.0"
+    const val VERSION = "1.4.0"
     val ENTRIES = listOf(
+        "v1.4.0" to listOf(
+            "Race music by InfiniteCable",
+            "A random song starts after GO, shuffled every race",
+            "Music pauses with the game and fades out at the finish",
+            "Race music on/off in Settings"
+        ),
         "v1.3.0" to listOf(
             "Rockets, missiles and mines upgradable 1-10",
             "Rockets 20-40, missiles 55-75, mines 40-60 hp",
@@ -55,6 +61,9 @@ class UpgDef(val label: String, val stat: String, val get: () -> Int, val inc: (
 
 class Game(private val context: Context, private val activity: Activity?) {
     val renderer = Renderer()
+    val music = MusicPlayer(context).also { m ->
+        m.onSongStart = { title -> toast("NOW PLAYING: $title - ${MusicConfig.ARTIST}") }
+    }
     val save: SaveData = SaveManager(context).load()
     private val saveManager = SaveManager(context)
 
@@ -164,6 +173,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         drainTouch()
         titleTime += dt
         refreshOnline()
+        syncMusic(dt)
         if (screen != Screen.RACE) maybeSync()
         mp?.tick()
         if (screen == Screen.MP_LOBBY) {
@@ -221,7 +231,22 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     // ---------------- race lifecycle ----------------
 
+    /** Music only plays while a race is actually running (after GO). */
+    private fun syncMusic(dt: Float) {
+        val r = mpLink?.race ?: race
+        val want = when (screen) {
+            Screen.RACE -> if (r != null && r.countdown <= 0f && !r.finished) MusicWant.PLAY else MusicWant.STOP
+            Screen.PAUSED -> MusicWant.PAUSE
+            else -> MusicWant.STOP
+        }
+        music.update(want, save.music, dt)
+    }
+
+    /** App sent to background: the game loop stops, so pause music directly. */
+    fun onAppPause() = music.pause()
+
     fun startRace(trackId: Int) {
+        music.newRace()
         selectedTrack = trackId
         val tDef = Catalog.TRACKS[trackId]
         raceTrack = TrackGen.build(tDef)
@@ -293,6 +318,7 @@ class Game(private val context: Context, private val activity: Activity?) {
     }
 
     private fun startMpRace() {
+        music.newRace()
         val s = mp ?: return
         val room = s.room ?: return
         val tid = room.trackId.coerceIn(0, 29)
@@ -681,7 +707,8 @@ class Game(private val context: Context, private val activity: Activity?) {
         renderer.drawButton(c, mail, CompanyInfo.SUPPORT_EMAIL, Color.argb(255, 40, 60, 150), false, h * 0.024f)
         buttons.add(mail to { emailSupport() })
         renderer.drawTextCentered(c, "Tap to email support", w / 2f, h * 0.58f, h * 0.018f, Color.argb(160, 130, 140, 180))
-        renderer.drawTextCentered(c, "Payments in XRP on the XRP Ledger", w / 2f, h * 0.68f, h * 0.019f, Color.argb(180, 160, 170, 210))
+        renderer.drawTextCentered(c, "Music by ${MusicConfig.ARTIST}", w / 2f, h * 0.64f, h * 0.024f, Color.argb(255, 0, 229, 255))
+        renderer.drawTextCentered(c, "Payments in XRP on the XRP Ledger", w / 2f, h * 0.70f, h * 0.019f, Color.argb(180, 160, 170, 210))
         renderer.drawTextCentered(c, "© ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)} ${CompanyInfo.COMPANY}. All rights reserved.", w / 2f, h * 0.92f, h * 0.018f, Color.argb(160, 130, 140, 180))
     }
 
@@ -1016,6 +1043,11 @@ class Game(private val context: Context, private val activity: Activity?) {
         val snd = RectF((w - bw) / 2f, y, (w + bw) / 2f, y + bh)
         renderer.drawButton(c, snd, "SOUND: ${if (save.sound) "ON" else "OFF"}", Color.argb(255, 60, 70, 110))
         buttons.add(snd to { save.sound = !save.sound; saveManager.save(save) })
+        y += bh * 1.3f
+
+        val mus = RectF((w - bw) / 2f, y, (w + bw) / 2f, y + bh)
+        renderer.drawButton(c, mus, if (music.songCount == 0) "MUSIC: no songs installed" else "RACE MUSIC: ${if (save.music) "ON" else "OFF"}  (${music.songCount} songs)", Color.argb(255, 70, 60, 120))
+        buttons.add(mus to { save.music = !save.music; saveManager.save(save) })
         y += bh * 1.3f
 
         val reset = RectF((w - bw) / 2f, y, (w + bw) / 2f, y + bh)

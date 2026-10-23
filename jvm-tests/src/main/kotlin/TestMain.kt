@@ -261,6 +261,7 @@ fun main() {
 
     runV11Tests(::check)
     runWeaponTests(::check)
+    runMusicTests(::check)
 
     println("\n$pass passed, $fail failed")
     if (fail > 0) kotlin.system.exitProcess(1)
