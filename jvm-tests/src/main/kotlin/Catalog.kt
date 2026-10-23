@@ -1,6 +1,47 @@
 package com.denoya.xenorush
 
-enum class WeaponType { PLASMA, HOMING, MINE, LASER }
+/**
+ * Every vehicle carries the full loadout:
+ *  BULLET  machine gun, 100 rounds max, 5-15 hp per hit (scales with the Weapon upgrade)
+ *  ROCKET  unguided, 4 max, 40 hp
+ *  SEEKER  guided missile, locks the nearest racer ahead          } 2 guided
+ *  HUNTER  guided missile, locks the racer one position ahead     } missiles max
+ *  LEADER  guided missile, locks the race leader                  } (75 hp each)
+ *  MINE    dropped behind, 3 max, 50 hp
+ */
+enum class WeaponType { BULLET, ROCKET, SEEKER, HUNTER, LEADER, MINE;
+    val guided: Boolean get() = this == SEEKER || this == HUNTER || this == LEADER
+}
+
+object Arms {
+    const val MAX_HULL = 100
+    const val MAX_SHIELD = 100
+    const val MAX_BULLETS = 100
+    const val MAX_ROCKETS = 4
+    const val MAX_MISSILES = 2
+    const val MAX_MINES = 3
+    const val ROCKET_DMG = 40f
+    const val MISSILE_DMG = 75f
+    const val MINE_DMG = 50f
+    const val GUN_INTERVAL = 0.12f     // ~8 rounds per second while held
+    const val SHIELD_PICKUP = 50
+    const val REPAIR_PICKUP = 35
+    /** Weapon upgrade 1..10 -> 5..15 hp per bullet. */
+    fun bulletDamage(weaponLevel: Int): Float = 5f + (weaponLevel.coerceIn(1, 10) - 1) * 10f / 9f
+
+    fun name(w: WeaponType): String = when (w) {
+        WeaponType.BULLET -> "Machine Gun"
+        WeaponType.ROCKET -> "Rocket"
+        WeaponType.SEEKER -> "Seeker Missile"
+        WeaponType.HUNTER -> "Hunter Missile"
+        WeaponType.LEADER -> "Leader Missile"
+        WeaponType.MINE -> "Mine"
+    }
+    fun short(w: WeaponType): String = when (w) {
+        WeaponType.BULLET -> "GUN"; WeaponType.ROCKET -> "RKT"; WeaponType.SEEKER -> "SEEK"
+        WeaponType.HUNTER -> "HUNT"; WeaponType.LEADER -> "LEAD"; WeaponType.MINE -> "MINE"
+    }
+}
 
 data class VehicleDef(
     val id: Int,
@@ -8,9 +49,6 @@ data class VehicleDef(
     val topSpeed: Float,      // world units / second
     val accel: Float,         // units / s^2
     val grip: Float,          // lateral stability multiplier
-    val energy: Int,          // base max hull energy
-    val weapon: WeaponType,
-    val ammo: Int,            // shots per race (before upgrades)
     val priceDrops: Long,     // 0 = free
     val color: Int
 )
@@ -62,9 +100,6 @@ object Catalog {
             topSpeed = 8600f + i * 270f,
             accel = 3300f + i * 115f,
             grip = 0.72f + i * 0.031f,
-            energy = 90 + i * 4,
-            weapon = WeaponType.entries[i % 4],
-            ammo = 5 + i / 6,
             priceDrops = if (i < FREE_VEHICLES) 0L else 15_000_000L + i * 4_000_000L,
             color = vehicleColors[i]
         )
@@ -125,13 +160,6 @@ object Catalog {
             roadDark = 0xFF333846.toInt(),
             neon = skyPalettes[i][1]
         )
-    }
-
-    fun weaponName(w: WeaponType): String = when (w) {
-        WeaponType.PLASMA -> "Plasma Cannon"
-        WeaponType.HOMING -> "Homing Missiles"
-        WeaponType.MINE -> "Proximity Mines"
-        WeaponType.LASER -> "Pulse Laser"
     }
 
     fun rewardForRank(rank: Int, difficulty: Int): Int {

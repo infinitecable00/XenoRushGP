@@ -23,7 +23,13 @@ import javax.net.ssl.HttpsURLConnection
 object Xrp {
     // CONFIGURE (developer only): the receiving wallet for player payments. Empty = XRP
     // purchases disabled until you set it. Never ship a seed/private key here - address only.
-    const val MERCHANT_ADDRESS = ""
+    const val MERCHANT_ADDRESS = "rhP6JEgUcBhBwXyoEQwaG6YqcsE9gSJoaN"
+
+    /**
+     * Testnet payments use free test XRP, so they must never unlock anything in a real build.
+     * Set to true only while developing against the XRPL testnet.
+     */
+    const val ALLOW_TESTNET = false
 
     const val MAINNET_RPC = "https://s1.ripple.com:51234/"
     const val TESTNET_RPC = "https://s.altnet.rippletest.net:51234/"
@@ -32,7 +38,7 @@ object Xrp {
     // XRPL transaction "date" is seconds since the Ripple epoch (2000-01-01).
     private const val RIPPLE_EPOCH_MS = 946684800000L
 
-    fun rpcUrl(mainnet: Boolean): String = if (mainnet) MAINNET_RPC else TESTNET_RPC
+    fun rpcUrl(mainnetRequested: Boolean): String = if (mainnetRequested || !ALLOW_TESTNET) MAINNET_RPC else TESTNET_RPC
 
     private fun post(url: String, body: String): JSONObject {
         val conn = URL(url).openConnection() as HttpsURLConnection

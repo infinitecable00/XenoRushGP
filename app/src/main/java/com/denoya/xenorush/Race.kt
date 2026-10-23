@@ -17,34 +17,47 @@ class Racer(
     var speed = 0f
     var lap = 0
     val totalDist: Float get() = lap * 1_000_000f + z
-    var energy: Int = maxEnergy()
+    var energy: Int = Arms.MAX_HULL      // hull health, 0 = destroyed
+    var shield: Int = 0                  // shield points, absorb damage before the hull (max 100)
     var alive = true
     var finished = false
     var finishTimeMs = -1L
-    var shieldT = 0f
     var reflectT = 0f
     var boostT = 0f
-    var ammo = 0
+    var bullets = Arms.MAX_BULLETS
+    var rockets = Arms.MAX_ROCKETS
+    var mines = 2
+    val missiles = ArrayList<WeaponType>()  // guided missiles held (max 2)
+    var secondary = WeaponType.ROCKET       // selected special weapon
     var heldPowerUp: PowerUpType? = null
-    var fireCooldown = 0f
+    var gunCooldown = 0f
+    var fireCooldown = 0f                   // special weapon cooldown
+    var aiBurst = 0
     var lastLapStart = 0L
     val lapTimes = ArrayList<Long>()
 
-    fun maxEnergy(): Int = (vehicle.energy * (1f + (vs.g - 1) * 0.05f)).toInt()
+    fun maxEnergy(): Int = Arms.MAX_HULL
     fun maxSpeed(): Float = vehicle.topSpeed * (1f + (vs.e - 1) * 0.035f)
     fun accel(): Float = vehicle.accel * (1f + (vs.a - 1) * 0.035f)
     fun grip(): Float = vehicle.grip * (1f + (vs.g - 1) * 0.05f)
-    fun weaponDamage(): Float {
-        val base = when (vehicle.weapon) {
-            WeaponType.PLASMA -> 22f
-            WeaponType.HOMING -> 30f
-            WeaponType.MINE -> 34f
-            WeaponType.LASER -> 18f
-        }
-        return base * (1f + (vs.w - 1) * 0.08f)
+    fun bulletDamage(): Float = Arms.bulletDamage(vs.w)
+
+    fun count(w: WeaponType): Int = when (w) {
+        WeaponType.BULLET -> bullets
+        WeaponType.ROCKET -> rockets
+        WeaponType.MINE -> mines
+        else -> missiles.count { it == w }
     }
 
-    fun startAmmo(): Int = vehicle.ammo + (vs.w - 1)
+    /** Special weapons the player can cycle through (rocket and mine always listed, missiles when held). */
+    fun secondaryChoices(): List<WeaponType> =
+        listOf(WeaponType.ROCKET) + listOf(WeaponType.SEEKER, WeaponType.HUNTER, WeaponType.LEADER).filter { it in missiles } + WeaponType.MINE
+
+    fun cycleSecondary() {
+        val ch = secondaryChoices()
+        val i = ch.indexOf(secondary)
+        secondary = ch[(i + 1).mod(ch.size)]
+    }
 }
 
 class Projectile(
@@ -73,12 +86,12 @@ enum class HitOutcome { DAMAGED, ABSORBED, REFLECTED, NONE }
 
 /** Combat event sent to other players in multiplayer. Each client only damages its own racer. */
 data class NetEvent(
-    val type: String,          // "proj", "mine", "laser", "laserback"
+    val type: String,          // "proj" or "mine"
     val from: String,          // uid of the racer that owns the shot
     val weapon: Int,           // WeaponType ordinal
     val z: Float, val x: Float, val speed: Float,
     val damage: Float,
-    val target: String = "",   // homing target / laser victim uid
+    val target: String = "",   // guided missile target uid
     val reflected: Boolean = false
 )
 
@@ -106,7 +119,6 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             r.z = (grid.size - 1 - i) * C.SEG_LEN * 1.8f
             r.x = if (i % 2 == 0) -0.4f else 0.4f
             r.speed = 0f
-            r.ammo = r.startAmmo()
         }
     }
 
@@ -135,28 +147,36 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         }
 
         // projectiles
+        val lenF = track.trackLength.toFloat()
         val it = projectiles.iterator()
         while (it.hasNext()) {
             val p = it.next()
             p.age += dt
-            if (p.age > 6f) { p.alive = false; it.remove(); continue }
-            if (p.type == WeaponType.HOMING && p.target != null && p.target!!.alive) {
-                p.x = lerp(p.x, p.target!!.x, clamp(2.5f * dt, 0f, 1f))
+            val life = if (p.type.guided) 12f else if (p.type == WeaponType.BULLET) 1.6f else 5f
+            if (p.age > life) { p.alive = false; it.remove(); continue }
+            val tgt = p.target
+            if (p.type.guided && tgt != null && tgt.alive) {
+                p.x = lerp(p.x, tgt.x, clamp(3.5f * dt, 0f, 1f))
+                // guided missiles always out-run their target
+                if (!p.reflected) p.speed = maxOf(p.speed, tgt.speed + 7000f)
             }
             p.z += p.speed * dt
             // keep positions normalized to [0, trackLength) so modular distance checks
             // stay valid for shots crossing the start/finish line (either direction)
-            val lenF = track.trackLength.toFloat()
             if (p.z >= lenF) p.z -= lenF
             if (p.z < 0f) p.z += lenF
+            val hitLen = if (p.type == WeaponType.BULLET) 200f else 260f
+            val hitW = if (p.type == WeaponType.BULLET) 0.3f else 0.38f
             for (r in racers) {
                 if (!r.alive || r === p.owner) continue
+                // guided missiles fly over everyone except their locked target
+                if (p.type.guided && tgt != null && tgt.alive && r !== tgt) continue
                 // modular distance so combat works across the start/finish line
-                if (abs(wrapDist(p.z - r.z, track.trackLength)) < 260f && abs(p.x - r.x) < 0.38f) {
+                if (abs(wrapDist(p.z - r.z, track.trackLength)) < hitLen && abs(p.x - r.x) < hitW) {
                     // remote racers are damaged on their own device; here the shot just disappears
                     if (r.isRemote) { p.alive = false; break }
                     val outcome = hitRacer(r, p.damage, p)
-                    if (outcome == HitOutcome.REFLECTED && r.isPlayer) emit(p.toEvent("proj", r.uid))
+                    if (outcome == HitOutcome.REFLECTED && r.isPlayer) emit(p.toEvent(r.uid))
                     if (outcome != HitOutcome.REFLECTED) p.alive = false
                     break
                 }
@@ -228,9 +248,9 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             r.speed += r.accel() * dt * (if (r.speed < target) 1f else -0.4f)
         }
         if (r.boostT > 0f) r.boostT -= dt
-        if (r.shieldT > 0f) r.shieldT -= dt
         if (r.reflectT > 0f) r.reflectT -= dt
         if (r.fireCooldown > 0f) r.fireCooldown -= dt
+        if (r.gunCooldown > 0f) r.gunCooldown -= dt
 
         // off-road
         if (abs(r.x) > 1f) {
@@ -252,12 +272,31 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             }
         }
 
-        // AI fires occasionally
-        if (!r.isPlayer && r.fireCooldown <= 0f && r.ammo > 0) {
-            val d = player.z - r.z
-            val wrapped = if (abs(d) > track.trackLength / 2f) d - Math.signum(d) * track.trackLength else d
-            if (abs(wrapped) < 4500f && rng.nextInt(100) < 45) fireWeapon(r)
+        if (!r.isPlayer) aiCombat(r)
+    }
+
+    /** AI: short gun bursts at whoever is just ahead, rockets/missiles now and then, mines when chased. */
+    private fun aiCombat(r: Racer) {
+        if (raceTimeMs < 8000L) return   // no shooting off the start line
+        val len = track.trackLength
+        val ahead = racers.filter { it !== r && it.alive }.map { it to wrapDist(it.z - r.z, len) }
+            .filter { it.second in 200f..4500f }.minByOrNull { it.second }?.first
+        if (ahead != null && abs(ahead.x - r.x) < 0.35f) {
+            if (r.aiBurst > 0) {
+                if (fireGun(r)) { r.aiBurst--; if (r.aiBurst == 0) r.fireCooldown = 2.5f + rng.nextFloat() * 2f }  // rest between bursts
+            }
+            else if (r.fireCooldown <= 0f && rng.nextInt(100) < 2) r.aiBurst = 3 + rng.nextInt(3)
         }
+        if (r.fireCooldown > 0f) return
+        if (rng.nextInt(1000) >= 2) return   // ~1 special every 8 s per AI, on average
+        val behind = racers.any { it !== r && it.alive && wrapDist(r.z - it.z, len) in 200f..2500f && abs(it.x - r.x) < 0.4f }
+        r.secondary = when {
+            r.missiles.isNotEmpty() && rng.nextBoolean() -> r.missiles.first()
+            behind && r.mines > 0 && rng.nextInt(3) == 0 -> WeaponType.MINE
+            ahead != null && r.rockets > 0 -> WeaponType.ROCKET
+            else -> return
+        }
+        fireSecondary(r)
     }
 
     private fun aiSteer(r: Racer, seg: Segment): Float {
@@ -272,68 +311,104 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 steer += if (o.x > r.x) -0.9f else 0.9f
             }
         }
+        // drift back toward the racing line when pushed wide (avoidance, combat)
+        if (abs(r.x) > 0.7f) steer -= Math.signum(r.x) * (abs(r.x) - 0.7f) * 2.5f
         return clamp(steer, -1f, 1f)
     }
 
     fun applyPickup(r: Racer, t: PowerUpType) {
         when (t) {
-            PowerUpType.SHIELD -> { r.shieldT = 6f; events.add("SHIELD UP") }
+            PowerUpType.SHIELD -> { r.shield = (r.shield + Arms.SHIELD_PICKUP).coerceAtMost(Arms.MAX_SHIELD); events.add("SHIELD ${r.shield}") }
             PowerUpType.REFLECT -> { r.reflectT = 8f; events.add("REFLECT ON") }
             PowerUpType.SPEED -> { r.boostT = 3f; r.speed += 1500f; events.add("BOOST") }
-            PowerUpType.REPAIR -> { r.energy = (r.energy + 35).coerceAtMost(r.maxEnergy()); events.add("+35 ENERGY") }
-            PowerUpType.AMMO -> { r.ammo += 3; events.add("+3 AMMO") }
+            PowerUpType.REPAIR -> { r.energy = (r.energy + Arms.REPAIR_PICKUP).coerceAtMost(Arms.MAX_HULL); events.add("+${Arms.REPAIR_PICKUP} HULL") }
+            PowerUpType.AMMO -> {
+                r.bullets = (r.bullets + 30).coerceAtMost(Arms.MAX_BULLETS)
+                r.rockets = (r.rockets + 1).coerceAtMost(Arms.MAX_ROCKETS)
+                events.add("+30 BULLETS +1 ROCKET")
+            }
+            PowerUpType.MISSILE -> {
+                if (r.missiles.size < Arms.MAX_MISSILES) {
+                    val m = listOf(WeaponType.SEEKER, WeaponType.HUNTER, WeaponType.LEADER)[rng.nextInt(3)]
+                    r.missiles.add(m)
+                    if (r.isPlayer) r.secondary = m
+                    events.add(Arms.name(m).uppercase())
+                } else events.add("MISSILES FULL")
+            }
+            PowerUpType.MINES -> { r.mines = (r.mines + 1).coerceAtMost(Arms.MAX_MINES); events.add("+1 MINE") }
         }
     }
 
     private fun emit(e: NetEvent) { onLocalEvent?.invoke(e) }
 
-    private fun Projectile.toEvent(type: String, from: String) = NetEvent(type, from, this.type.ordinal,
+    private fun Projectile.toEvent(from: String) = NetEvent("proj", from, type.ordinal,
         z, x, speed, damage, target?.uid ?: "", reflected)
 
     private fun wrapZ(z: Float): Float = z.mod(track.trackLength.toFloat())
 
-    fun fireWeapon(r: Racer) {
-        if (r.ammo <= 0 || !r.alive || r.finished) return
-        r.ammo--
-        r.fireCooldown = 1.6f
-        when (r.vehicle.weapon) {
-            WeaponType.PLASMA -> {
-                val p = Projectile(WeaponType.PLASMA, wrapZ(r.z + 300f), r.x, r.speed + 9500f, r, r.weaponDamage())
+    /** Position in the race (1 = leader) using the same ordering as rank(). */
+    private fun standings(): List<Racer> = racers.filter { it.alive }.sortedByDescending { it.totalDist }
+
+    /** Picks the lock-on target for a guided missile. */
+    fun missileTarget(r: Racer, type: WeaponType): Racer? {
+        val others = racers.filter { it !== r && it.alive }
+        if (others.isEmpty()) return null
+        val nearestAhead = others.minByOrNull { (it.z - r.z).mod(track.trackLength.toFloat()) }
+        val order = standings()
+        val myPos = order.indexOf(r)
+        return when (type) {
+            WeaponType.SEEKER -> nearestAhead
+            WeaponType.HUNTER -> if (myPos > 0) order[myPos - 1] else nearestAhead      // one position ahead
+            WeaponType.LEADER -> if (myPos != 0) order.first() else order.getOrNull(1)  // the leader (or 2nd if you lead)
+            else -> null
+        }
+    }
+
+    /** Machine gun: one bullet per call, rate-limited. Returns true if a round was fired. */
+    fun fireGun(r: Racer): Boolean {
+        if (!r.alive || r.finished || r.bullets <= 0 || r.gunCooldown > 0f) return false
+        r.bullets--
+        r.gunCooldown = Arms.GUN_INTERVAL
+        val p = Projectile(WeaponType.BULLET, wrapZ(r.z + 250f), r.x, r.speed + 14000f, r, r.bulletDamage())
+        projectiles.add(p)
+        if (r.isPlayer) emit(p.toEvent(r.uid))
+        return true
+    }
+
+    /** Fires the racer's selected special weapon (rocket, guided missile or mine). */
+    fun fireSecondary(r: Racer): Boolean {
+        if (!r.alive || r.finished || r.fireCooldown > 0f) return false
+        val w = r.secondary
+        when (w) {
+            WeaponType.ROCKET -> {
+                if (r.rockets <= 0) return false
+                r.rockets--
+                val p = Projectile(WeaponType.ROCKET, wrapZ(r.z + 300f), r.x, r.speed + 8000f, r, Arms.ROCKET_DMG)
                 projectiles.add(p)
-                if (r.isPlayer) emit(p.toEvent("proj", r.uid))
+                if (r.isPlayer) emit(p.toEvent(r.uid))
             }
-            WeaponType.HOMING -> {
-                val target = racers.filter { it !== r && it.alive }.minByOrNull {
-                    abs(wrapDist(it.z - r.z, track.trackLength))
-                }
-                val p = Projectile(WeaponType.HOMING, wrapZ(r.z + 300f), r.x, r.speed + 6000f, r, r.weaponDamage(), target)
+            WeaponType.SEEKER, WeaponType.HUNTER, WeaponType.LEADER -> {
+                if (!r.missiles.remove(w)) return false
+                val target = missileTarget(r, w)
+                val p = Projectile(w, wrapZ(r.z + 300f), r.x, r.speed + 7000f, r, Arms.MISSILE_DMG, target)
                 projectiles.add(p)
-                if (r.isPlayer) emit(p.toEvent("proj", r.uid))
+                if (r.isPlayer) {
+                    emit(p.toEvent(r.uid))
+                    events.add("${Arms.short(w)} LOCKED: ${target?.let { if (it.isRemote) it.displayName else it.vehicle.name } ?: "none"}")
+                }
+                if (w !in r.missiles) r.secondary = r.missiles.firstOrNull() ?: WeaponType.ROCKET
             }
             WeaponType.MINE -> {
-                val m = MineObj(wrapZ(r.z - 400f), r.x, r, r.weaponDamage())
+                if (r.mines <= 0) return false
+                r.mines--
+                val m = MineObj(wrapZ(r.z - 400f), r.x, r, Arms.MINE_DMG)
                 mines.add(m)
                 if (r.isPlayer) emit(NetEvent("mine", r.uid, WeaponType.MINE.ordinal, m.z, m.x, 0f, m.damage))
             }
-            WeaponType.LASER -> {
-                // instant beam: hit nearest racer within 5200 units ahead
-                val hit = racers.filter {
-                    it !== r && it.alive && abs(wrapDist(it.z - r.z, track.trackLength)) in 300f..5200f && abs(it.x - r.x) < 0.4f
-                }.minByOrNull { abs(wrapDist(it.z - r.z, track.trackLength)) }
-                if (hit != null && hit.isRemote) {
-                    // the victim's device decides (shield / reflect / damage)
-                    if (r.isPlayer) emit(NetEvent("laser", r.uid, WeaponType.LASER.ordinal, r.z, r.x, 0f, r.weaponDamage(), hit.uid))
-                } else if (hit != null) {
-                    if (hit.reflectT > 0f) {
-                        // beam bounces back at the shooter
-                        hitRacer(r, r.weaponDamage(), null)
-                        if (r.isPlayer) events.add("BEAM REFLECTED")
-                    } else {
-                        hitRacer(hit, r.weaponDamage(), null)
-                    }
-                }
-            }
+            WeaponType.BULLET -> return fireGun(r)
         }
+        r.fireCooldown = 0.8f
+        return true
     }
 
     /** Apply a combat event received from another player. */
@@ -346,16 +421,6 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 projectiles.add(Projectile(type, wrapZ(e.z), e.x, e.speed, owner, e.damage, target, reflected = e.reflected))
             }
             "mine" -> mines.add(MineObj(wrapZ(e.z), e.x, owner, e.damage))
-            "laser" -> if (e.target == player.uid && player.alive) {
-                if (player.reflectT > 0f) {
-                    events.add("BEAM REFLECTED")
-                    emit(NetEvent("laserback", player.uid, e.weapon, player.z, player.x, 0f, e.damage, e.from))
-                } else hitRacer(player, e.damage, null)
-            }
-            "laserback" -> if (e.target == player.uid && player.alive) {
-                hitRacer(player, e.damage, null)
-                events.add("BEAM REFLECTED")
-            }
         }
     }
 
@@ -367,24 +432,32 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
     fun hitRacer(r: Racer, dmg: Float, proj: Projectile?): HitOutcome {
         if (!r.alive) return HitOutcome.NONE
         if (r.reflectT > 0f && proj != null && !proj.reflected) {
-            // reflect: projectile reverses toward its owner
+            // reflect: projectile reverses toward its owner (guided missiles re-lock on the shooter)
             proj.reflected = true
+            val shooter = proj.owner
             proj.owner = r
-            proj.target = null
+            proj.target = if (proj.type.guided) shooter else null
             proj.speed = -abs(proj.speed) * 1.6f
             if (r.isPlayer) events.add("REFLECTED")
             return HitOutcome.REFLECTED
         }
-        if (r.shieldT > 0f) {
-            if (r.isPlayer) events.add("SHIELD ABSORBED")
-            return HitOutcome.ABSORBED
+        var d = dmg.toInt().coerceAtLeast(1)
+        if (r.shield > 0) {
+            val absorbed = minOf(r.shield, d)
+            r.shield -= absorbed
+            d -= absorbed
+            if (d == 0) {
+                if (r.isPlayer) events.add("SHIELD -$absorbed")
+                return HitOutcome.ABSORBED
+            }
         }
-        r.energy -= dmg.toInt()
+        r.energy -= d
         if (r.isPlayer) {
             shakeT = 0.3f
-            events.add("HIT -${dmg.toInt()}")
+            events.add("HIT -$d")
         }
         if (r.energy <= 0) {
+            r.energy = 0
             r.alive = false
             r.speed = 0f
             if (r.isPlayer) events.add("DESTROYED")

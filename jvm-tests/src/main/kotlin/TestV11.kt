@@ -48,6 +48,8 @@ class LoopBackend(val hub: LoopHub, val me: String) : MpBackend {
     }
 }
 
+fun wrapTest(z: Float, tr: Track) = z.mod(tr.trackLength.toFloat())
+
 fun runV11Tests(check: (String, Boolean) -> Unit) {
     // ---------------- pricing ----------------
     check("price: upgrade 0.99, vehicle 2.50, track pack 9.99",
@@ -149,18 +151,17 @@ fun runV11Tests(check: (String, Boolean) -> Unit) {
     // combat: alice fires plasma at bob from right behind him
     val aliceL = la.race.player; val bobL = lb.race.player
     aliceL.z = 3000f; aliceL.x = 0f; aliceL.lap = 0; aliceL.speed = 0f
-    bobL.z = 4200f; bobL.x = 0f; bobL.lap = 0; bobL.speed = 0f; bobL.shieldT = 0f; bobL.reflectT = 0f
+    bobL.z = 4200f; bobL.x = 0f; bobL.lap = 0; bobL.speed = 0f; bobL.shield = 0; bobL.reflectT = 0f
     for (l in listOf(la, lb)) l.publish(force = true)
     sa.tick(); sb.tick(); repeat(30) { sa.tick(); sb.tick() } // let proxies settle
     val bobEnergy0 = bobL.energy
     la.race.projectiles.clear(); lb.race.projectiles.clear()
-    aliceL.ammo = 5; aliceL.fireCooldown = 0f
+    aliceL.fireCooldown = 0f
     val proxyBobOnA = la.race.racers.first { it.uid == "bob" }
     val proxyEnergyBefore = proxyBobOnA.energy
-    la.race.fireWeapon(aliceL)
+    fireRocket(la.race, aliceL)
     sb.tick()
-    check("mp: alice has a projectile weapon", Catalog.VEHICLES[0].weapon == WeaponType.PLASMA)
-    check("mp: shot event reaches other device", lb.race.projectiles.size == 1 && lb.race.projectiles[0].owner.uid == "alice")
+        check("mp: shot event reaches other device", lb.race.projectiles.size == 1 && lb.race.projectiles[0].owner.uid == "alice")
     repeat(40) {
         la.race.update(0.016f, PlayerInput(), t); lb.race.update(0.016f, PlayerInput(), t)
         aliceL.speed = 0f; bobL.speed = 0f
@@ -173,7 +174,7 @@ fun runV11Tests(check: (String, Boolean) -> Unit) {
     lb.race.projectiles.clear(); la.race.projectiles.clear()
     bobL.reflectT = 5f; aliceL.fireCooldown = 0f
     val aliceEnergy0 = aliceL.energy; val bobEnergy1 = bobL.energy
-    la.race.fireWeapon(aliceL); sb.tick()
+    fireRocket(la.race, aliceL); sb.tick()
     repeat(60) {
         la.race.update(0.016f, PlayerInput(), t); lb.race.update(0.016f, PlayerInput(), t)
         sa.tick(); sb.tick(); aliceL.speed = 0f; bobL.speed = 0f; bobL.reflectT = 5f
@@ -181,17 +182,18 @@ fun runV11Tests(check: (String, Boolean) -> Unit) {
     check("mp: reflector not damaged", bobL.energy == bobEnergy1)
     check("mp: reflected shot damages original shooter", aliceL.energy < aliceEnergy0)
 
-    // laser: simulate a laser event from alice
-    val laserEv = NetEvent("laser", "alice", WeaponType.LASER.ordinal, 0f, 0f, 0f, 18f, "bob")
-    bobL.reflectT = 0f; bobL.shieldT = 0f
+    // guided missile event aimed at bob only damages bob on bob's device
+    lb.race.projectiles.clear(); la.race.projectiles.clear(); bobL.reflectT = 0f; bobL.shield = 0
     val e2 = bobL.energy
-    lb.race.applyRemoteEvent(laserEv)
-    check("mp: laser event damages target only on its device", bobL.energy == e2 - 18)
-    bobL.reflectT = 5f
-    val aliceE = aliceL.energy
-    lb.race.applyRemoteEvent(laserEv); sa.tick()
-    check("mp: reflected laser bounces back to shooter", aliceL.energy == aliceE - 18)
-    check("mp: own events ignored", run { val before = bobL.energy; lb.onEvent(NetEvent("laser", "bob", 3, 0f, 0f, 0f, 18f, "bob")); bobL.energy == before })
+    lb.race.applyRemoteEvent(NetEvent("proj", "alice", WeaponType.LEADER.ordinal, wrapTest(bobL.z - 1500f, track), bobL.x, 15000f, 75f, "bob"))
+    repeat(60) { lb.race.update(0.016f, PlayerInput(), t); bobL.speed = 0f }
+    check("mp: remote guided missile hits its target for 75", bobL.energy == (e2 - 75).coerceAtLeast(0))
+    // bullets are sent as events too
+    var sent = 0
+    la.race.onLocalEvent = { e -> if (WeaponType.entries[e.weapon] == WeaponType.BULLET) sent++ }
+    aliceL.gunCooldown = 0f; la.race.fireGun(aliceL)
+    check("mp: bullets broadcast", sent == 1)
+    check("mp: own events ignored", run { val before = bobL.energy; lb.onEvent(NetEvent("proj", "bob", 0, bobL.z, bobL.x, 0f, 10f, "")); bobL.energy == before && lb.race.projectiles.isEmpty() })
 
     // disconnect + standings
     sb.leave(); sa.tick()

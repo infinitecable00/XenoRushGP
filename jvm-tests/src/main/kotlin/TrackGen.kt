@@ -8,7 +8,7 @@ class Point {
     var screenX: Float = 0f; var screenY: Float = 0f; var screenW: Float = 0f; var screenScale: Float = 0f
 }
 
-enum class PowerUpType { SHIELD, REFLECT, SPEED, REPAIR, AMMO }
+enum class PowerUpType { SHIELD, REFLECT, SPEED, REPAIR, AMMO, MISSILE, MINES }
 
 class TrackSprite(val type: PowerUpType, val x: Float)
 
@@ -101,7 +101,7 @@ object TrackGen {
         val pRng = Random(def.seed + 99)
         var i = 40
         while (i < track.segments.size - 30) {
-            val type = PowerUpType.entries[pRng.nextInt(5)]
+            val type = PowerUpType.entries[pRng.nextInt(PowerUpType.entries.size)]
             val lane = -0.75f + pRng.nextInt(4) * 0.5f
             track.segments[i].sprites.add(TrackSprite(type, lane))
             i += 18 + pRng.nextInt(22)

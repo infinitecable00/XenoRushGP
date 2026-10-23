@@ -1,6 +1,11 @@
 import com.denoya.xenorush.*
 import org.json.JSONObject
 
+fun fireRocket(r: Race, s: Racer): Boolean {
+    s.rockets = Arms.MAX_ROCKETS; s.fireCooldown = 0f; s.secondary = WeaponType.ROCKET
+    return r.fireSecondary(s)
+}
+
 fun main() {
     var pass = 0
     var fail = 0
@@ -15,8 +20,8 @@ fun main() {
     check("5 free tracks", Catalog.TRACKS.take(5).all { it.priceDrops == 0L })
     check("17 paid vehicles", Catalog.VEHICLES.drop(5).all { it.priceDrops > 0 })
     check("25 paid tracks", Catalog.TRACKS.drop(5).all { it.priceDrops > 0 })
-    check("vehicles progressively better", Catalog.VEHICLES.zipWithNext().all { (a, b) -> b.topSpeed > a.topSpeed && b.accel > a.accel && b.energy > a.energy })
-    check("weapon types cover 4", WeaponType.entries.size == 4)
+    check("vehicles progressively better", Catalog.VEHICLES.zipWithNext().all { (a, b) -> b.topSpeed > a.topSpeed && b.accel > a.accel && b.grip > a.grip })
+    check("6 weapon types (gun, rocket, 3 missiles, mine)", WeaponType.entries.size == 6 && WeaponType.entries.count { it.guided } == 3)
     check("all 30 tracks distinct names", Catalog.TRACKS.map { it.name }.toSet().size == 30)
     check("all 22 vehicles distinct names", Catalog.VEHICLES.map { it.name }.toSet().size == 22)
 
@@ -49,9 +54,10 @@ fun main() {
         input.right = race.player.x < 0.1f && seg.curve < -1.5f
         race.update(dt, input, (simTime * 1000).toLong())
         simTime += dt
-        if (race.player.shieldT > 0f || race.player.boostT > 0f || race.player.reflectT > 0f) sawPickup = true
+        if (race.player.shield > 0 || race.player.boostT > 0f || race.player.reflectT > 0f) sawPickup = true
         if (race.projectiles.isNotEmpty() || race.mines.isNotEmpty()) sawFire = true
     }
+    println("      player hull at finish: ${race.player.energy} shield ${race.player.shield}; AI alive ${ais.count { it.alive }}/7; AI off-road (alive only): ${ais.count { it.alive && kotlin.math.abs(it.x) > 1.3f }}")
     println("      race finished=${race.finished} simTime=${"%.1f".format(simTime)}s lap=${race.player.lap} rank=${race.rank(player)}")
     check("race completes", race.finished)
     check("player completes 3 laps", race.player.lap >= 3)
@@ -82,7 +88,7 @@ fun main() {
             r.update(1 / 60f, PlayerInput(), (t * 1000).toLong())
             // manually fire a plasma bolt at the player
             if (r.projectiles.isEmpty() && t < 1f) {
-                r.fireWeapon(shooter)
+                fireRocket(r, shooter)
                 // plasma bolt flying forward from the shooter toward the player
                 r.projectiles.lastOrNull()?.let { it.x = p.x; it.z = shooter.z + 300f; it.speed = 9000f }
             }
@@ -94,41 +100,18 @@ fun main() {
         check("reflected projectile damages original shooter", damagedShooter)
     }
 
-    // --- laser deals real damage ---
-    run {
-        val p = Racer(Catalog.VEHICLES[3], VehicleState(true, 1, 1, 1, 1), true, 1f) // LASER
-        val victim = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), false, 1f)
-        val r = Race(track, listOf(p, victim), 0)
-        r.countdown = 0f
-        victim.z = p.z + 2000f
-        victim.x = p.x
-        victim.energy = 200
-        p.ammo = 5
-        r.fireWeapon(p)
-        check("laser damages target", victim.energy < 200)
-    }
-
-    // --- weapon effect per type ---
-    // LASER is instant-hitscan: its effect is verified by damage dealt to an in-range target.
+    // --- every weapon type has an effect ---
     for (wt in WeaponType.entries) {
-        val vDef = Catalog.VEHICLES.first { it.weapon == wt }
-        val p2 = Racer(vDef, VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val p2 = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
         val victim2 = Racer(Catalog.VEHICLES[1], VehicleState(true, 1, 1, 1, 1), false, 0.9f)
         val r2 = Race(tracks[1], listOf(p2, victim2), 0)
         r2.countdown = 0f
-        victim2.z = p2.z + 1500f
-        victim2.x = p2.x
-        victim2.energy = 200
-        p2.ammo = 5
+        victim2.z = p2.z + 1500f; victim2.x = p2.x
+        if (wt.guided) p2.missiles.add(wt)
+        p2.secondary = wt
         val before = r2.projectiles.size + r2.mines.size
-        val energyBefore2 = victim2.energy
-        r2.fireWeapon(p2)
-        val after = r2.projectiles.size + r2.mines.size
-        val effect = when (wt) {
-            WeaponType.LASER -> victim2.energy < energyBefore2
-            else -> after > before
-        }
-        check("fire $wt produces effect", effect)
+        val ok = r2.fireSecondary(p2)
+        check("fire $wt produces effect", ok && r2.projectiles.size + r2.mines.size == before + 1)
     }
 
     // --- upgrade math ---
@@ -138,12 +121,12 @@ fun main() {
         var cost = 0
         for (lvl in 1 until 10) { cost += Catalog.upgradeCost(5, lvl) }
         vs2.e = 10; vs2.w = 10
-        val dmg1 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 1), true, 1f).weaponDamage()
-        val dmg10 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 10), true, 1f).weaponDamage()
+        val dmg1 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 1), true, 1f).bulletDamage()
+        val dmg10 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 10), true, 1f).bulletDamage()
         val spd1 = Racer(Catalog.VEHICLES[5], VehicleState(true, 1, 1, 1, 1), true, 1f).maxSpeed()
         val spd10 = Racer(Catalog.VEHICLES[5], VehicleState(true, 10, 1, 1, 1), true, 1f).maxSpeed()
         check("upgrade costs scale and are positive", cost > 0 && Catalog.upgradeCost(5, 2) > Catalog.upgradeCost(5, 1))
-        check("weapon lvl10 boosts damage", dmg10 > dmg1 * 1.6f)
+        check("bullet damage 5 at lvl1, 15 at lvl10", dmg1 == 5f && dmg10 == 15f)
         check("engine lvl10 boosts speed", spd10 > spd1 * 1.3f)
         println("      full engine upgrade cost: $cost CR; dmg ${"%.1f".format(dmg1)} -> ${"%.1f".format(dmg10)}")
     }
@@ -153,7 +136,16 @@ fun main() {
     println("      mainnet ledger index: $li")
     check("XRP ledger index reachable", li > 0)
     // real account with real envelope-format history: parser must normalize {"tx":..., "meta":..., "validated":...}
-    val realAddr = "rLCNiHdL4CPgSRJcBu5QE5GxadqKTrUjm5"
+    // pick an account that just transacted (a fixed address may have no recent history)
+    val realAddr = run {
+        val c = java.net.URL(Xrp.MAINNET_RPC).openConnection() as java.net.HttpURLConnection
+        c.requestMethod = "POST"; c.doOutput = true; c.setRequestProperty("Content-Type", "application/json")
+        c.outputStream.use { it.write("""{"method":"ledger","params":[{"ledger_index":"validated","transactions":true,"expand":true}]}""".toByteArray()) }
+        val txsL = org.json.JSONObject(c.inputStream.bufferedReader().readText()).getJSONObject("result").getJSONObject("ledger").getJSONArray("transactions")
+        val o = txsL.getJSONObject(0)
+        (o.optJSONObject("tx_json") ?: o).getString("Account")
+    }
+    println("      sample account: $realAddr")
     val txs = Xrp.accountTxs(Xrp.MAINNET_RPC, realAddr, li - 2000)
     check("account_tx parses real envelopes", txs.isNotEmpty())
     if (txs.isNotEmpty()) {
@@ -212,8 +204,7 @@ fun main() {
         victim.energy = 200
         shooter.speed = 0f
         victim.speed = 0f
-        shooter.ammo = 5
-        r.fireWeapon(shooter) // natural plasma bolt from trackLength-1000+300, moving forward
+        fireRocket(r, shooter) // natural plasma bolt from trackLength-1000+300, moving forward
         check("shot fired across the line exists", r.projectiles.isNotEmpty())
         var t = 0f
         var hit = false
@@ -240,8 +231,7 @@ fun main() {
         shooter.energy = 200
         shooter.speed = 0f
         victim.speed = 0f
-        shooter.ammo = 5
-        r.fireWeapon(shooter)
+        fireRocket(r, shooter)
         var t = 0f
         var damaged = false
         while (t < 6f && !damaged) {
@@ -269,6 +259,7 @@ fun main() {
     }
 
     runV11Tests(::check)
+    runWeaponTests(::check)
 
     println("\n$pass passed, $fail failed")
     if (fail > 0) kotlin.system.exitProcess(1)

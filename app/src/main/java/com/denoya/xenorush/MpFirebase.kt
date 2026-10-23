@@ -141,7 +141,7 @@ class MpFirebase(app: FirebaseApp) : MpBackend {
         fun d(k: String) = (s.child(k).value as? Number)?.toDouble() ?: 0.0
         fun b(k: String) = s.child(k).getValue(Boolean::class.java) ?: false
         NetState(d("z").toFloat(), d("lap").toInt(), d("x").toFloat(), d("sp").toFloat(), d("en").toInt(),
-            b("al"), b("fin"), d("fm").toLong(), b("sh"), b("rf"), b("bo"), d("t").toLong())
+            b("al"), b("fin"), d("fm").toLong(), d("sh").toInt(), b("rf"), b("bo"), d("t").toLong())
     } catch (_: Exception) { null }
 
     override fun watchStates(roomId: String, onState: (String, NetState?) -> Unit) {

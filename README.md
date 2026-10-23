@@ -4,24 +4,41 @@ An F-Zero-inspired futuristic combat racer for Android, with on-track power-ups,
 weapons, a 1-10 upgrade scale, 30 tracks, 22 vehicles, XRP-powered unlocks, optional Google
 sign-in with cloud save, and 2-4 player online multiplayer.
 
-> **Status: development prototype (v1.1).** The APK builds cleanly and the game logic is
-> covered by an automated 108-check JVM test suite (full simulated race, live XRPL mainnet
+> **Status: development prototype (v1.2).** The APK builds cleanly and the game logic is
+> covered by an automated 150-check JVM test suite (full simulated race, live XRPL mainnet
 > queries, live XRP price, save merging, and a simulated two-device multiplayer match).
 > It has NOT been run on a real Android device yet. Google sign-in, cloud save and
 > multiplayer need a Firebase project (see below) and have not been tested against a live
-> Firebase backend. XRP purchases stay disabled until `MERCHANT_ADDRESS` is set in `Xrp.kt`.
+> Firebase backend. Payments go to the merchant address set in `Xrp.kt` on XRP mainnet.
 
 ## Features
 
 - **Pseudo-3D racing engine** (SNES F-Zero style): curves, hills, rumble strips, neon void
 - **30 tracks**: 5 free, 25 in the **Track Pack**
 - **22 vehicles**: 5 free, 17 paid, progressively better stats
-- **Power-ups on track**: Shield, Reflect (bounces projectiles back at the shooter),
-  Speed boost, Repair (+35 energy), Ammo (+3 shots)
-- **Weapons per vehicle**: Plasma Cannon, Homing Missiles, Proximity Mines, Pulse Laser
+- **Power-ups on track**: Shield (+50 shield), Reflect (bounces projectiles back at the
+  shooter), Speed boost, Repair (+35 hull), Ammo (+30 bullets, +1 rocket), Missile (random
+  guided missile), Mines (+1)
 - **Upgrades 1-10** per vehicle (Engine, Thrusters, Stabilizers, Weapon). Every vehicle,
-  including free ones, can be upgraded to 10 with credits earned by racing, or instantly
-  for $0.99 per level in XRP
+  including free ones, can be upgraded to 10 with credits earned by winning races, or
+  instantly for $0.99 per level in XRP. Both paths are available.
+
+## Combat
+
+Every vehicle has **100 hull** and up to **100 shield**. Shield absorbs damage before hull;
+a racer at 0 hull is destroyed.
+
+| Weapon | Max carried | Damage | Notes |
+|---|---|---|---|
+| Guns (bullets) | 100 | 5-15 hp per bullet | Damage scales with the Weapon upgrade (lvl 1 = 5, lvl 10 = 15). Hold GUN to auto-fire |
+| Unguided rockets | 4 | 40 hp | Fly straight ahead |
+| Seeker missile (guided) | 2 missiles total | 75 hp | Locks onto the nearest racer ahead |
+| Hunter missile (guided) | (shared) | 75 hp | Locks onto the racer one place ahead of you in the standings |
+| Leader missile (guided) | (shared) | 75 hp | Locks onto the race leader (2nd place if you are leading); flies past everyone else |
+| Mines | 3 | 50 hp | Dropped behind you |
+
+Reflect sends projectiles back; a reflected guided missile re-locks onto whoever fired it.
+AI racers use guns, rockets, missiles and mines too, but hold fire for the first 8 seconds.
 - **8-car single-player races** vs AI: 3 laps, lap records, first-win bonuses
 - **Online multiplayer**: 2-4 human players, quick match
 - **Google sign-in + cloud save** across devices
@@ -67,11 +84,11 @@ signing, then `./gradlew assembleRelease`.
 
 ## XRP payments — how it works
 
-1. Set `MERCHANT_ADDRESS` in `app/src/main/java/com/denoya/xenorush/Xrp.kt` to your
-   receiving XRP wallet address (starts with `r...`). It is developer-controlled and not
-   player-editable, so players cannot redirect payments to themselves. XRP purchases stay
-   disabled until you set it.
-2. Choose the network in Settings: **TESTNET** (default, play money) or **MAINNET** (real XRP).
+1. `MERCHANT_ADDRESS` in `app/src/main/java/com/denoya/xenorush/Xrp.kt` is set to
+   `rhP6JEgUcBhBwXyoEQwaG6YqcsE9gSJoaN`. It is developer-controlled and not player-editable,
+   so players cannot redirect payments to themselves.
+2. Payments are verified on **XRP mainnet only**. The network toggle is locked
+   (`ALLOW_TESTNET = false`) so nobody can unlock content with free testnet XRP.
 3. Players buy a vehicle, an upgrade level, or the Track Pack. The game creates an invoice:
    - unique **destination tag** per invoice
    - exact XRP amount (USD price converted at the live rate, locked for the invoice)
@@ -88,9 +105,9 @@ USD prices are defined in `Pricing.kt` and are easy to change.
 
 ### Testing payments
 
-- Set the wallet address to a **testnet** account (get one + funds from the XRPL testnet
-  faucet at https://faucet.altnet.rippletest.net/), leave network on TESTNET, and pay with
-  testnet XRP. The unlock flow is identical to mainnet.
+- For development only: set `ALLOW_TESTNET = true` and point `MERCHANT_ADDRESS` at a
+  **testnet** account (funds from https://faucet.altnet.rippletest.net/). Set it back to
+  `false` before distributing a build.
 - Testnet RPC: `https://s.altnet.rippletest.net:51234/` • Mainnet RPC: `https://s1.ripple.com:51234/`
 
 ### Security notes (important)
@@ -148,7 +165,7 @@ and never commit it.
   green light uses the server clock, so every device starts together.
 - Track: the host's selected track if every player owns it, otherwise a random free track.
 - Each device simulates only its own vehicle and publishes its position 10 times a second.
-  Other racers are smoothed proxies. Shots, mines and lasers are sent as events, and each
+  Other racers are smoothed proxies. Bullets, rockets, missiles and mines are sent as events, and each
   device applies damage only to its own racer (shield / reflect are decided by the victim).
 - Requires sign-in and an internet connection. Leaving or disconnecting removes you from
   the room.
@@ -181,12 +198,17 @@ app/src/main/java/com/denoya/xenorush/
 ## Controls
 
 - Bottom-left: ◀ ▶ steering
-- Bottom-right: GAS (large), BRK (brake), FIRE (weapon)
+- Bottom-right: GAS (large), BRK (brake), GUN (hold to auto-fire), special (fires the
+  selected rocket / missile / mine), WPN (cycles the special weapon)
 - Tap the top-right area during a race to pause
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 108/108 checks. v1.1 added:
+A JVM test harness (copies of the pure-Kotlin files) passes 150/150 checks. v1.2 added: bullet damage scaling 5-15, ammo caps (100 bullets,
+4 rockets, 2 missiles), rocket 40 hp and missile 75 hp hits, shield-before-hull damage,
+each guided missile picking the right target (nearest ahead / next place / leader, flying
+past other racers), reflected missiles re-locking onto the shooter, mine hits, AI combat,
+and a full race the player survives. v1.1 added:
 USD-to-XRP conversion that never underpays, price parsing for all three sources plus a live
 fetch, item-id validation, save round-trip and corrupt-save recovery, every cloud merge rule,
 and a simulated two-device multiplayer match over an in-memory transport (matchmaking,

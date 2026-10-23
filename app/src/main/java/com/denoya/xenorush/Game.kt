@@ -146,8 +146,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                 if (ci != lastCd && ci <= 3) { lastCd = ci; beep(70, 120) }
             }
             r.update(dt, input, System.currentTimeMillis() - raceStartWall)
-            if (screen == Screen.RACE && raceUi.firePressed && !lastFire) { r.fireWeapon(r.player); beep(50, 90) }
-            lastFire = raceUi.firePressed
+            if (screen == Screen.RACE) handleWeapons(r)
             link.publish()
             if (r.finished && screen != Screen.RESULTS) finishMpRace()
             return
@@ -163,15 +162,27 @@ class Game(private val context: Context, private val activity: Activity?) {
             }
             r.update(dt, input, System.currentTimeMillis() - raceStartWall)
             // fire handling (tap FIRE button)
-            if (raceUi.firePressed && !lastFire) {
-                r.fireWeapon(r.player)
-                beep(50, 90)
-            }
-            lastFire = raceUi.firePressed
+            handleWeapons(r)
             if (r.finished) {
                 finishRace()
             }
         }
+    }
+
+    private var lastSpecial = false
+    private var lastCycle = false
+
+    /** GUN fires while held; special fires once per tap; WPN cycles the special weapon. */
+    private fun handleWeapons(r: Race) {
+        val p = r.player
+        if (raceUi.gunPressed && r.countdown <= 0f) r.fireGun(p)
+        if (raceUi.cyclePressed && !lastCycle) { p.cycleSecondary(); beep(40, 40) }
+        lastCycle = raceUi.cyclePressed
+        if (raceUi.specialPressed && !lastSpecial && r.countdown <= 0f) {
+            if (r.fireSecondary(p)) beep(60, 90) else r.events.add("NO ${Arms.short(p.secondary)} LEFT")
+        }
+        lastSpecial = raceUi.specialPressed
+        raceUi.secondaryLabel = "${Arms.short(p.secondary)} ${p.count(p.secondary)}"
     }
 
     // ---------------- race lifecycle ----------------
@@ -295,6 +306,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         if (save.merchantAddress.isBlank() || save.merchantAddress != Xrp.MERCHANT_ADDRESS) {
             save.merchantAddress = Xrp.MERCHANT_ADDRESS
         }
+        if (!Xrp.ALLOW_TESTNET) save.mainnet = true
     }
 
     // ---------------- payment ----------------
@@ -528,7 +540,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         val r = RectF(w * 0.25f, h * 0.62f, w * 0.75f, h * 0.70f)
         renderer.drawButton(c, r, "TAP TO START", Color.argb(255, 40, 60, 140), (System.currentTimeMillis() / 600) % 2 == 0L, h * 0.03f)
         buttons.add(r to { screen = Screen.MENU })
-        renderer.drawTextCentered(c, "v1.1  •  single player works offline", w / 2f, h * 0.95f, h * 0.018f, Color.argb(140, 130, 140, 180))
+        renderer.drawTextCentered(c, "v1.2  •  single player works offline", w / 2f, h * 0.95f, h * 0.018f, Color.argb(140, 130, 140, 180))
     }
 
     // ---------- MAIN MENU ----------
@@ -563,7 +575,7 @@ class Game(private val context: Context, private val activity: Activity?) {
             if (online) Color.argb(200, 120, 230, 160) else Color.argb(200, 200, 170, 120))
         // current vehicle preview
         renderer.drawCarShape(c, w / 2f, h * 0.78f, w * 0.14f, sel.color, 0f)
-        renderer.drawTextCentered(c, "${sel.name}  •  ${Catalog.weaponName(sel.weapon)}", w / 2f, h * 0.84f, h * 0.024f, Color.WHITE)
+        renderer.drawTextCentered(c, "${sel.name}  •  ${(sel.topSpeed * 0.045).toInt()} km/h", w / 2f, h * 0.84f, h * 0.024f, Color.WHITE)
         val vs = save.vehicleState(save.selectedVehicle)
         renderer.drawTextCentered(c, "Upgrades  E${vs.e} A${vs.a} G${vs.g} W${vs.w}", w / 2f, h * 0.88f, h * 0.022f, Color.argb(200, 160, 170, 210))
     }
@@ -641,7 +653,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                 c.drawText("${v.id + 1}. ${v.name}", r.left + rowH * 1.2f, r.top + rowH * 0.38f, p)
                 p.textSize = rowH * 0.22f
                 p.color = Color.argb(210, 170, 180, 220)
-                c.drawText("${Catalog.weaponName(v.weapon)}  SPD ${(v.topSpeed * 0.045).toInt()}km/h", r.left + rowH * 1.2f, r.top + rowH * 0.66f, p)
+                c.drawText("SPD ${(v.topSpeed * 0.045).toInt()}km/h  ACC ${v.accel.toInt()}", r.left + rowH * 1.2f, r.top + rowH * 0.66f, p)
                 val badge = if (vs.owned) (if (save.selectedVehicle == v.id) "SELECTED" else "OWNED") else Pricing.fmtUsd(Pricing.VEHICLE_USD_CENTS)
                 val p2 = Paint(Paint.ANTI_ALIAS_FLAG)
                 p2.textSize = rowH * 0.24f
@@ -667,7 +679,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         p.textSize = h * 0.022f
         p.color = Color.argb(230, 170, 180, 220)
         p.textAlign = Paint.Align.CENTER
-        c.drawText("${Catalog.weaponName(v.weapon)}  •  AMMO ${v.ammo + (vs.w - 1)}/race", w / 2f, h * 0.20f, p)
+        c.drawText("Gun ${Arms.bulletDamage(vs.w).toInt()}hp/bullet  •  4 rockets  •  2 missiles  •  mines", w / 2f, h * 0.20f, p)
         c.drawText("CREDITS: ${save.credits} CR", w / 2f, h * 0.23f, p)
 
         // stat bars with upgrade buttons
@@ -675,7 +687,7 @@ class Game(private val context: Context, private val activity: Activity?) {
             UpgDef("ENGINE  (top speed)", "e", { vs.e }, { vs.e++ }),
             UpgDef("THRUSTERS  (acceleration)", "a", { vs.a }, { vs.a++ }),
             UpgDef("STABILIZERS  (grip)", "g", { vs.g }, { vs.g++ }),
-            UpgDef("WEAPON  (power + ammo)", "w", { vs.w }, { vs.w++ })
+            UpgDef("WEAPON  (bullet dmg 5-15)", "w", { vs.w }, { vs.w++ })
         )
         var y = h * 0.27f
         for (u in upgrades) {
@@ -736,7 +748,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         if (vs.owned) renderer.drawTextCentered(c, "Upgrade with race credits, or ${Pricing.fmtUsd(Pricing.UPGRADE_USD_CENTS)} in XRP per level", w / 2f, h * 0.70f, h * 0.019f, Color.argb(200, 255, 214, 90))
         if (screen == Screen.VEHICLE) refreshPrice()
         // stats summary
-        renderer.drawTextCentered(c, "Base: SPD ${(v.topSpeed * 0.045).toInt()}km/h  ACC ${v.accel.toInt()}  GRIP ${String.format("%.2f", v.grip)}  HULL ${v.energy}", w / 2f, h * 0.74f, h * 0.02f, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "Base: SPD ${(v.topSpeed * 0.045).toInt()}km/h  ACC ${v.accel.toInt()}  GRIP ${String.format("%.2f", v.grip)}  HULL ${Arms.MAX_HULL}  SHIELD ${Arms.MAX_SHIELD}", w / 2f, h * 0.74f, h * 0.02f, Color.argb(200, 160, 170, 210))
     }
 
     // ---------- SHOP ----------
@@ -857,6 +869,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         val net = RectF((w - bw) / 2f, y, (w + bw) / 2f, y + bh)
         renderer.drawButton(c, net, "NETWORK: ${if (save.mainnet) "MAINNET (real XRP)" else "TESTNET (play money)"}", if (save.mainnet) Color.argb(255, 150, 60, 40) else Color.argb(255, 40, 110, 90))
         buttons.add(net to {
+            if (!Xrp.ALLOW_TESTNET) { save.mainnet = true; toast("Payments use XRP mainnet (locked)"); return@to }
             if (!save.mainnet) toast("Mainnet enabled - real XRP payments") else toast("Testnet enabled")
             save.mainnet = !save.mainnet
             saveManager.save(save)
@@ -894,7 +907,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                     save.selectedVehicle = 0
                     save.vehicles.clear(); save.tracks.clear()
                     save.usedTxHashes.clear(); save.pendingInvoice = null
-                    save.mainnet = false
+                    save.mainnet = !Xrp.ALLOW_TESTNET
                     saveManager.save(save)
                     toast("Progress reset")
                     screen = Screen.MENU
@@ -1179,7 +1192,9 @@ class Game(private val context: Context, private val activity: Activity?) {
             if (inCircle(x, y, L.right)) put("right")
             if (inCircle(x, y, L.gas)) put("gas")
             if (inCircle(x, y, L.brake)) put("brake")
-            if (inCircle(x, y, L.fire)) put("fire")
+            if (inCircle(x, y, L.gun)) put("gun")
+            if (inCircle(x, y, L.special)) put("special")
+            if (inCircle(x, y, L.cycle)) put("cycle")
         }
         fun release(pid: Int) {
             pointerButtons.remove(pid)?.forEach { setBtn(it, false) }
@@ -1213,13 +1228,15 @@ class Game(private val context: Context, private val activity: Activity?) {
             "right" -> input.right = v
             "gas" -> input.gas = v
             "brake" -> input.brake = v
-            "fire" -> raceUi.firePressed = v
+            "gun" -> raceUi.gunPressed = v
+            "special" -> raceUi.specialPressed = v
+            "cycle" -> raceUi.cyclePressed = v
         }
     }
 
     fun releaseAllControls() {
         input.left = false; input.right = false; input.gas = false; input.brake = false
-        raceUi.firePressed = false
+        raceUi.gunPressed = false; raceUi.specialPressed = false; raceUi.cyclePressed = false
     }
 
     // ---------------- sound ----------------

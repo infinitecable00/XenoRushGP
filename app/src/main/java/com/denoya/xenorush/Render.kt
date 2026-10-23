@@ -221,6 +221,8 @@ class Renderer {
             PowerUpType.SPEED -> Color.argb(255, 90, 255, 170)
             PowerUpType.REPAIR -> Color.argb(255, 255, 210, 60)
             PowerUpType.AMMO -> Color.argb(255, 255, 110, 110)
+            PowerUpType.MISSILE -> Color.argb(255, 255, 150, 40)
+            PowerUpType.MINES -> Color.argb(255, 230, 60, 60)
         }
         // glow
         paint.color = Color.argb(70, Color.red(col), Color.green(col), Color.blue(col))
@@ -235,6 +237,8 @@ class Renderer {
             PowerUpType.SPEED -> "B"
             PowerUpType.REPAIR -> "+"
             PowerUpType.AMMO -> "A"
+            PowerUpType.MISSILE -> "M"
+            PowerUpType.MINES -> "X"
         }
         val tw = paint.measureText(letter)
         c.drawText(letter, screenX - tw / 2, screenY + r * 0.4f, paint)
@@ -291,11 +295,19 @@ class Renderer {
         val screenY = seg.p1.screenY
         val r = scale * C.ROAD_WIDTH * w / 2f * 0.03f
         if (screenY > clipY || r < 1.5f) return
-        val col = if (p.reflected) Color.argb(255, 120, 255, 255) else Color.argb(255, 255, 120, 60)
+        val col = when {
+            p.reflected -> Color.argb(255, 120, 255, 255)
+            p.type == WeaponType.BULLET -> Color.argb(255, 255, 240, 120)
+            p.type == WeaponType.ROCKET -> Color.argb(255, 255, 120, 60)
+            p.type == WeaponType.SEEKER -> Color.argb(255, 120, 200, 255)
+            p.type == WeaponType.HUNTER -> Color.argb(255, 255, 90, 200)
+            else -> Color.argb(255, 255, 215, 0) // LEADER
+        }
+        val size = if (p.type == WeaponType.BULLET) r * 0.45f else if (p.type.guided) r * 1.25f else r
         paint.color = Color.argb(80, Color.red(col), Color.green(col), Color.blue(col))
-        c.drawCircle(screenX, screenY, r * 2.8f, paint)
+        c.drawCircle(screenX, screenY, size * 2.8f, paint)
         paint.color = col
-        c.drawCircle(screenX, screenY, r, paint)
+        c.drawCircle(screenX, screenY, size, paint)
     }
 
     private fun drawProjectilesNear(c: Canvas, race: Race, w: Int, h: Int, camX: Float, camY: Float, camZ: Float, camDepth: Float) {
@@ -330,8 +342,8 @@ class Renderer {
             c.drawCircle(cx, bottomY + bob + halfW * 0.15f, halfW * 0.5f, paint)
         }
         // shield bubble
-        if (player.shieldT > 0f) {
-            paint.color = Color.argb(50, 80, 190, 255)
+        if (player.shield > 0) {
+            paint.color = Color.argb(30 + player.shield, 80, 190, 255)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 4f
             c.drawCircle(cx, bottomY - halfW * 0.4f, halfW * 1.5f, paint)
@@ -370,7 +382,15 @@ class Renderer {
         c.drawRect(ebX, ebY, ebX + ebW * clamp(pct, 0f, 1f), ebY + ebH, paint)
         textPaint.color = Color.argb(230, 200, 210, 255)
         textPaint.textSize = h * 0.02f
-        c.drawText("ENERGY", ebX, ebY - h * 0.008f, textPaint)
+        c.drawText("HULL ${player.energy}/${Arms.MAX_HULL}", ebX, ebY - h * 0.008f, textPaint)
+        // shield bar
+        val sbY = ebY + ebH + h * 0.022f
+        paint.color = Color.argb(255, 30, 40, 70)
+        c.drawRect(ebX, sbY, ebX + ebW, sbY + ebH * 0.7f, paint)
+        paint.color = Color.argb(255, 80, 190, 255)
+        c.drawRect(ebX, sbY, ebX + ebW * clamp(player.shield / Arms.MAX_SHIELD.toFloat(), 0f, 1f), sbY + ebH * 0.7f, paint)
+        textPaint.textSize = h * 0.016f
+        c.drawText("SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - h * 0.004f, textPaint)
 
         // lap / position
         textPaint.textAlign = Paint.Align.CENTER
@@ -394,8 +414,7 @@ class Renderer {
         // buff timers
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.textSize = h * 0.02f
-        var by = h * 0.13f
-        if (player.shieldT > 0f) { textPaint.color = Color.argb(255, 80, 190, 255); c.drawText("SHIELD ${player.shieldT.toInt()}s", w * 0.04f, by, textPaint); by += h * 0.03f }
+        var by = h * 0.14f
         if (player.reflectT > 0f) { textPaint.color = Color.argb(255, 200, 130, 255); c.drawText("REFLECT ${player.reflectT.toInt()}s", w * 0.04f, by, textPaint); by += h * 0.03f }
         if (player.boostT > 0f) { textPaint.color = Color.argb(255, 90, 255, 170); c.drawText("BOOST ${player.boostT.toInt()}s", w * 0.04f, by, textPaint) }
 
@@ -412,11 +431,17 @@ class Renderer {
             race.events.subList(0, n).clear()
         }
 
-        // ammo
+        // weapons readout (left side, above steering)
         textPaint.textAlign = Paint.Align.LEFT
-        textPaint.color = Color.argb(255, 255, 150, 150)
-        textPaint.textSize = h * 0.026f
-        c.drawText("AMMO ${player.ammo}", w * 0.04f, h - h * 0.20f, textPaint)
+        textPaint.textSize = h * 0.021f
+        var ay = h - h * 0.30f
+        val lines = listOf(
+            "GUN  ${player.bullets}/${Arms.MAX_BULLETS}  (${player.bulletDamage().toInt()}hp)" to Color.argb(255, 255, 240, 140),
+            "ROCKETS  ${player.rockets}/${Arms.MAX_ROCKETS}" to Color.argb(255, 255, 150, 110),
+            "MISSILES  " + (if (player.missiles.isEmpty()) "-" else player.missiles.joinToString(" ") { Arms.short(it) }) to Color.argb(255, 140, 210, 255),
+            "MINES  ${player.mines}/${Arms.MAX_MINES}" to Color.argb(255, 255, 110, 110)
+        )
+        for ((t, col) in lines) { textPaint.color = col; c.drawText(t, w * 0.04f, ay, textPaint); ay += h * 0.027f }
 
         // countdown
         if (race.countdown > 0f) {
@@ -444,7 +469,9 @@ class Renderer {
         val right = floatArrayOf(w * 0.32f, cy, w * 0.095f)
         val gas = floatArrayOf(w * 0.88f, cy, w * 0.10f)
         val brake = floatArrayOf(w * 0.66f, cy, w * 0.09f)
-        val fire = floatArrayOf(w * 0.74f, cy - h * 0.20f, w * 0.10f)
+        val gun = floatArrayOf(w * 0.86f, cy - w * 0.24f, w * 0.09f)
+        val special = floatArrayOf(w * 0.64f, cy - w * 0.22f, w * 0.085f)
+        val cycle = floatArrayOf(w * 0.86f, cy - w * 0.44f, w * 0.065f)
     }
 
     private fun drawControls(c: Canvas, w: Int, h: Int, ui: RaceUi) {
@@ -463,7 +490,10 @@ class Renderer {
         btn(L.right, "▶", ui.input.right, Color.argb(255, 60, 120, 220))
         btn(L.gas, "GAS", ui.input.gas, Color.argb(255, 40, 180, 110))
         btn(L.brake, "BRK", ui.input.brake, Color.argb(255, 190, 60, 60))
-        btn(L.fire, "FIRE", ui.firePressed, Color.argb(255, 220, 90, 50))
+        btn(L.gun, "GUN", ui.gunPressed, Color.argb(255, 230, 190, 40))
+        val sp = ui.secondaryLabel
+        btn(L.special, sp, ui.specialPressed, Color.argb(255, 220, 90, 50))
+        btn(L.cycle, "WPN", ui.cyclePressed, Color.argb(255, 120, 120, 170))
     }
 
     // ---------------- shared UI helpers ----------------
@@ -489,5 +519,8 @@ class Renderer {
 }
 
 class RaceUi(val input: PlayerInput) {
-    var firePressed = false
+    var gunPressed = false        // hold for automatic fire
+    var specialPressed = false    // fires the selected rocket / missile / mine
+    var cyclePressed = false      // switches the selected special weapon
+    var secondaryLabel = "RKT"
 }

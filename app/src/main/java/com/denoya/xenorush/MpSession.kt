@@ -30,7 +30,7 @@ data class MpRoom(
 data class NetState(
     val z: Float, val lap: Int, val x: Float, val speed: Float,
     val energy: Int, val alive: Boolean, val finished: Boolean, val finishMs: Long,
-    val shield: Boolean, val reflect: Boolean, val boost: Boolean,
+    val shield: Int, val reflect: Boolean, val boost: Boolean,
     val t: Long                         // sender's server-time estimate
 )
 
@@ -214,7 +214,7 @@ class MpRaceLink(
             r.alive = s.alive
             r.finished = s.finished
             r.finishTimeMs = s.finishMs
-            r.shieldT = if (s.shield) 1f else 0f
+            r.shield = s.shield.coerceIn(0, Arms.MAX_SHIELD)
             r.reflectT = if (s.reflect) 1f else 0f
             r.boostT = if (s.boost) 1f else 0f
         }
@@ -227,7 +227,7 @@ class MpRaceLink(
         lastPublish = now
         val p = race.player
         backend.publishState(roomId, NetState(p.z, p.lap, p.x, p.speed, p.energy, p.alive, p.finished,
-            p.finishTimeMs, p.shieldT > 0f, p.reflectT > 0f, p.boostT > 0f, now))
+            p.finishTimeMs, p.shield, p.reflectT > 0f, p.boostT > 0f, now))
     }
 
     /** Multiplayer standings: finishers by time, then by distance; destroyed racers last. */
