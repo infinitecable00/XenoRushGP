@@ -3,9 +3,11 @@ package com.denoya.xenorush
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class VehicleState(var owned: Boolean, var e: Int, var a: Int, var g: Int, var w: Int) {
-    fun get(stat: String): Int = when (stat) { "e" -> e; "a" -> a; "g" -> g; else -> w }
-    fun inc(stat: String) { when (stat) { "e" -> e++; "a" -> a++; "g" -> g++; else -> w++ } }
+data class VehicleState(var owned: Boolean, var e: Int, var a: Int, var g: Int, var w: Int,
+                        var r: Int = 1, var m: Int = 1, var n: Int = 1) {
+    fun get(stat: String): Int = when (stat) { "e" -> e; "a" -> a; "g" -> g; "r" -> r; "m" -> m; "n" -> n; else -> w }
+    fun set(stat: String, v: Int) { when (stat) { "e" -> e = v; "a" -> a = v; "g" -> g = v; "r" -> r = v; "m" -> m = v; "n" -> n = v; else -> w = v } }
+    fun inc(stat: String) = set(stat, get(stat) + 1)
 }
 data class TrackState(var owned: Boolean, var bestLapMs: Long, var wins: Int)
 
@@ -66,7 +68,7 @@ object SaveCodec {
         val vs = JSONObject()
         for ((k, v) in sd.vehicles) {
             vs.put(k.toString(), JSONObject().put("owned", v.owned).put("e", v.e)
-                .put("a", v.a).put("g", v.g).put("w", v.w))
+                .put("a", v.a).put("g", v.g).put("w", v.w).put("r", v.r).put("m", v.m).put("n", v.n))
         }
         json.put("vehicles", vs)
         val ts = JSONObject()
@@ -104,7 +106,7 @@ object SaveCodec {
                     val o = vs.getJSONObject(k)
                     fun lv(n: String) = o.optInt(n, 1).coerceIn(1, 10)
                     sd.vehicles[id] = VehicleState(o.optBoolean("owned", false) || id < Catalog.FREE_VEHICLES,
-                        lv("e"), lv("a"), lv("g"), lv("w"))
+                        lv("e"), lv("a"), lv("g"), lv("w"), lv("r"), lv("m"), lv("n"))
                 }
             }
             json.optJSONObject("tracks")?.let { ts ->
@@ -150,7 +152,9 @@ object SaveMerge {
         out.updatedAt = maxOf(local.updatedAt, remote.updatedAt)
         for (id in 0 until 22) {
             val a = local.vehicleState(id); val b = remote.vehicleState(id)
-            out.vehicles[id] = VehicleState(a.owned || b.owned, maxOf(a.e, b.e), maxOf(a.a, b.a), maxOf(a.g, b.g), maxOf(a.w, b.w))
+            val v = VehicleState(a.owned || b.owned, 1, 1, 1, 1)
+            for (st in Catalog.STATS) v.set(st, maxOf(a.get(st), b.get(st)))
+            out.vehicles[id] = v
         }
         for (id in 0 until 30) {
             val a = local.trackState(id); val b = remote.trackState(id)

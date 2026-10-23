@@ -120,7 +120,7 @@ fun runV11Tests(check: (String, Boolean) -> Unit) {
     check("mp: track falls back to a free track when not all own host's pick", room.trackId < Catalog.FREE_TRACKS)
     check("mp: host track used when all own it", MpRules.chooseTrack(room.copy(players = room.players.mapValues { it.value.copy(ownedTracks = (0..29).toSet()) }), "alice") == 17)
     check("mp: start is ~5s in future", room.startAt - hub.clock in 4_000..5_000)
-    val fourRoom = MpRoom("r", "waiting", (1..4).associate { "p$it" to player("p$it", 0, setOf(0), 0) }, 0, 0, 0)
+    val fourRoom = MpRoom("r", "waiting", (1..MpRules.MAX_PLAYERS).associate { "p$it" to player("p$it", 0, setOf(0), 0) }, 0, 0, 0)
     check("mp: full room starts immediately", MpRules.shouldStart(fourRoom, 0))
     check("mp: lone player never starts", !MpRules.shouldStart(fourRoom.copy(players = mapOf("p1" to fourRoom.players["p1"]!!)), Long.MAX_VALUE))
 

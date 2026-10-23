@@ -81,9 +81,8 @@ class Renderer {
             val seg = track.segments[segIdx]
             val clipY = seg.clip
             // power-ups
-            for (s in seg.sprites) {
-                val key = seg.index * 31 + s.type.ordinal
-                if (race.collected.contains(key)) continue
+            for (s in race.spritesAt(seg)) {
+                if (race.isCollected(seg.index, s.type)) continue
                 drawPowerUp(c, seg, s, w, clipY)
             }
             // mines
@@ -506,6 +505,9 @@ class Renderer {
         textPaint.textAlign = Paint.Align.CENTER
         textPaint.color = Color.WHITE
         textPaint.textSize = textSize
+        val maxW = rect.width() * 0.92f
+        val tw = textPaint.measureText(label)
+        if (tw > maxW && tw > 0f) textPaint.textSize = textSize * maxW / tw
         val ty = rect.centerY() + textPaint.textSize * 0.32f
         c.drawText(label, rect.centerX(), ty, textPaint)
     }
@@ -514,6 +516,10 @@ class Renderer {
         textPaint.textAlign = align
         textPaint.color = color
         textPaint.textSize = size
+        // shrink long lines so they never run off the screen
+        val maxW = c.width * 0.94f
+        val tw = textPaint.measureText(text)
+        if (tw > maxW && tw > 0f) textPaint.textSize = size * maxW / tw
         c.drawText(text, x, y, textPaint)
     }
 }

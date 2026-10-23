@@ -40,7 +40,8 @@ fun main() {
     // --- full race simulation ---
     val track = tracks[0]
     val player = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
-    val ais = (0 until 7).map { Racer(Catalog.VEHICLES[(it * 3) % 22], VehicleState(true, 1, 1, 1, 1), false, 0.9f) }
+    check("races are 5 racers", Catalog.RACERS_PER_RACE == 5)
+    val ais = (0 until Catalog.RACERS_PER_RACE - 1).map { Racer(Catalog.VEHICLES[(it * 3) % 22], VehicleState(true, 1, 1, 1, 1), false, 0.9f) }
     val race = Race(track, ais + player, 0)
     val input = PlayerInput()
     var simTime = 0f
@@ -57,17 +58,17 @@ fun main() {
         if (race.player.shield > 0 || race.player.boostT > 0f || race.player.reflectT > 0f) sawPickup = true
         if (race.projectiles.isNotEmpty() || race.mines.isNotEmpty()) sawFire = true
     }
-    println("      player hull at finish: ${race.player.energy} shield ${race.player.shield}; AI alive ${ais.count { it.alive }}/7; AI off-road (alive only): ${ais.count { it.alive && kotlin.math.abs(it.x) > 1.3f }}")
+    println("      player hull at finish: ${race.player.energy} shield ${race.player.shield}; AI alive ${ais.count { it.alive }}/${ais.size}; AI off-road (alive only): ${ais.count { it.alive && kotlin.math.abs(it.x) > 1.3f }}")
     println("      race finished=${race.finished} simTime=${"%.1f".format(simTime)}s lap=${race.player.lap} rank=${race.rank(player)}")
     check("race completes", race.finished)
     check("player completes 3 laps", race.player.lap >= 3)
     check("power-ups were collected", sawPickup)
     check("weapons were fired", sawFire)
-    check("ranks are a permutation", race.racers.map { race.rank(it) }.sorted() == (1..8).toList())
+    check("ranks are a permutation", race.racers.map { race.rank(it) }.sorted() == (1..5).toList())
     check("race time positive", race.raceTimeMs > 0)
     // AI should stay mostly on the road (steering compensation works)
     val aiOff = ais.count { kotlin.math.abs(it.x) > 1.3f }
-    println("      AI off-road count at end: $aiOff/7 (avg |x| = ${"%.2f".format(ais.map { kotlin.math.abs(it.x) }.average())})")
+    println("      AI off-road count at end: $aiOff/${ais.size} (avg |x| = ${"%.2f".format(ais.map { kotlin.math.abs(it.x) }.average())})")
     check("AI stays on road", aiOff <= 2)
 
     // --- reflection: incoming projectile bounces back and damages the shooter ---

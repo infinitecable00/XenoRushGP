@@ -2,10 +2,10 @@
 
 An F-Zero-inspired futuristic combat racer for Android, with on-track power-ups, vehicle
 weapons, a 1-10 upgrade scale, 30 tracks, 22 vehicles, XRP-powered unlocks, optional Google
-sign-in with cloud save, and 2-4 player online multiplayer.
+sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as "coming soon".
 
-> **Status: development prototype (v1.2).** The APK builds cleanly and the game logic is
-> covered by an automated 150-check JVM test suite (full simulated race, live XRPL mainnet
+> **Status: development prototype (v1.3).** The APK builds cleanly and the game logic is
+> covered by an automated 171-check JVM test suite (full simulated race, live XRPL mainnet
 > queries, live XRP price, save merging, and a simulated two-device multiplayer match).
 > It has NOT been run on a real Android device yet. Google sign-in, cloud save and
 > multiplayer need a Firebase project (see below) and have not been tested against a live
@@ -18,36 +18,43 @@ sign-in with cloud save, and 2-4 player online multiplayer.
 - **22 vehicles**: 5 free, 17 paid, progressively better stats
 - **Power-ups on track**: Shield (+50 shield), Reflect (bounces projectiles back at the
   shooter), Speed boost, Repair (+35 hull), Ammo (+30 bullets, +1 rocket), Missile (random
-  guided missile), Mines (+1)
-- **Upgrades 1-10** per vehicle (Engine, Thrusters, Stabilizers, Weapon). Every vehicle,
-  including free ones, can be upgraded to 10 with credits earned by winning races, or
-  instantly for $0.99 per level in XRP. Both paths are available.
+  guided missile), Mines (+1). On top of the fixed power-ups, every race places **8 random
+  Shield and Reflect drops** (4 of each) at new spots on the course. All power-ups come back
+  every lap.
+- **Upgrades 1-10** per vehicle, 7 stats: Engine, Thrusters, Stabilizers, Guns, Rockets,
+  Missiles, Mines. Levels **1-5** can be bought with credits earned by winning races.
+  Levels **6-10** are paid unlocks ($0.99 in XRP per level). The $0.99 upgrade can also be
+  used on levels 1-5 as a shortcut.
+- **5-racer single-player races** (you + 4 AI): 3 laps, lap records, first-win bonuses.
+  AI weapon levels rise with track difficulty (level 1 on 1-star tracks up to level 5).
+- **Multiplayer: coming soon.** The home screen button shows "COMING SOON"; the online code
+  (2-5 players) stays in the project for a later release.
+- **Google sign-in + cloud save** across devices
+- **Updates screen** (what's new + check for updates) and **Credits screen**
+  (Beam Galactic INC, support: support@beamgalactic.com)
 
 ## Combat
 
 Every vehicle has **100 hull** and up to **100 shield**. Shield absorbs damage before hull;
 a racer at 0 hull is destroyed.
 
-| Weapon | Max carried | Damage | Notes |
+| Weapon | Max carried | Damage (upgrade lvl 1 -> 10) | Notes |
 |---|---|---|---|
-| Guns (bullets) | 100 | 5-15 hp per bullet | Damage scales with the Weapon upgrade (lvl 1 = 5, lvl 10 = 15). Hold GUN to auto-fire |
-| Unguided rockets | 4 | 40 hp | Fly straight ahead |
-| Seeker missile (guided) | 2 missiles total | 75 hp | Locks onto the nearest racer ahead |
-| Hunter missile (guided) | (shared) | 75 hp | Locks onto the racer one place ahead of you in the standings |
-| Leader missile (guided) | (shared) | 75 hp | Locks onto the race leader (2nd place if you are leading); flies past everyone else |
-| Mines | 3 | 50 hp | Dropped behind you |
+| Guns (bullets) | 100 | 5 -> 15 hp per bullet | Guns upgrade. Hold GUN to auto-fire |
+| Unguided rockets | 4 | 20 -> 40 hp | Rockets upgrade. Fly straight ahead |
+| Seeker missile (guided) | 2 missiles total | 55 -> 75 hp | Missiles upgrade. Locks onto the nearest racer ahead |
+| Hunter missile (guided) | (shared) | 55 -> 75 hp | Locks onto the racer one place ahead of you in the standings |
+| Leader missile (guided) | (shared) | 55 -> 75 hp | Locks onto the race leader (2nd place if you are leading); flies past everyone else |
+| Mines | 3 | 40 -> 60 hp | Mines upgrade. Dropped behind you |
 
 Reflect sends projectiles back; a reflected guided missile re-locks onto whoever fired it.
 AI racers use guns, rockets, missiles and mines too, but hold fire for the first 8 seconds.
-- **8-car single-player races** vs AI: 3 laps, lap records, first-win bonuses
-- **Online multiplayer**: 2-4 human players, quick match
-- **Google sign-in + cloud save** across devices
 
 ## Pricing (USD, paid in XRP at the live rate)
 
 | Item | Price |
 |---|---|
-| One upgrade level (any stat, any owned vehicle) | $0.99 |
+| One upgrade level (any stat, any owned vehicle; required for levels 6-10) | $0.99 |
 | Each paid vehicle (17) | $2.50 |
 | Track Pack (all 25 paid tracks) | $9.99 |
 
@@ -204,7 +211,11 @@ app/src/main/java/com/denoya/xenorush/
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 150/150 checks. v1.2 added: bullet damage scaling 5-15, ammo caps (100 bullets,
+A JVM test harness (copies of the pure-Kotlin files) passes 171/171 checks. v1.3 added: rocket/missile/mine damage scaling (20-40, 55-75,
+40-60) checked in flight at levels 1 and 10, the level-5 credit cap, new stats in saves,
+old-save loading and cloud merge, paid upgrade ids for the new stats, random Shield and
+Reflect drops on all 30 courses (random per race, shared track data unchanged), drop
+pickup, power-ups returning each lap, and 5-racer races. v1.2 added: bullet damage scaling 5-15, ammo caps (100 bullets,
 4 rockets, 2 missiles), rocket 40 hp and missile 75 hp hits, shield-before-hull damage,
 each guided missile picking the right target (nearest ahead / next place / leader, flying
 past other racers), reflected missiles re-locking onto the shooter, mine hits, AI combat,

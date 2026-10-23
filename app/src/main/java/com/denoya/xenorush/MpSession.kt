@@ -50,7 +50,7 @@ interface MpBackend {
 }
 
 object MpRules {
-    const val MAX_PLAYERS = 4
+    const val MAX_PLAYERS = 5
     const val FILL_WAIT_MS = 15_000L      // after the 2nd player joins, wait this long for more
     const val START_DELAY_MS = 5_000L     // countdown lead time once the race is locked in
     const val STATE_INTERVAL_MS = 100L    // 10 Hz

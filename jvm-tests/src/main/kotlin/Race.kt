@@ -41,6 +41,9 @@ class Racer(
     fun accel(): Float = vehicle.accel * (1f + (vs.a - 1) * 0.035f)
     fun grip(): Float = vehicle.grip * (1f + (vs.g - 1) * 0.05f)
     fun bulletDamage(): Float = Arms.bulletDamage(vs.w)
+    fun rocketDamage(): Float = Arms.rocketDamage(vs.r)
+    fun missileDamage(): Float = Arms.missileDamage(vs.m)
+    fun mineDamage(): Float = Arms.mineDamage(vs.n)
 
     fun count(w: WeaponType): Int = when (w) {
         WeaponType.BULLET -> bullets
@@ -95,14 +98,19 @@ data class NetEvent(
     val reflected: Boolean = false
 )
 
-class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, gridOrder: List<Racer>? = null) {
+class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, gridOrder: List<Racer>? = null,
+           dropRng: Random = Random.Default) {
     /** Multiplayer hook: called when the LOCAL player creates something other players must see. */
     var onLocalEvent: ((NetEvent) -> Unit)? = null
     val multiplayer: Boolean get() = racers.any { it.isRemote }
     val player: Racer = racers.first { it.isPlayer }
     val projectiles = ArrayList<Projectile>()
     val mines = ArrayList<MineObj>()
-    val collected = HashSet<Int>() // segment indices already picked up this race
+    /** Random Shield/Reflect drops for THIS race only (the shared track data is never changed). */
+    val randomDrops = HashMap<Int, ArrayList<TrackSprite>>()   // segment index -> drops
+    /** Fixed track power-ups plus this race's random drops. */
+    fun spritesAt(seg: Segment): List<TrackSprite> = randomDrops[seg.index]?.let { seg.sprites + it } ?: seg.sprites
+    val collected = HashSet<Long>() // (lap, segment, type) already picked up - power-ups come back every lap
     var raceTimeMs = 0L
     var countdown = 3.99f
     var finished = false
@@ -119,6 +127,33 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             r.z = (grid.size - 1 - i) * C.SEG_LEN * 1.8f
             r.x = if (i % 2 == 0) -0.4f else 0.4f
             r.speed = 0f
+        }
+        placeRandomDrops(dropRng)
+    }
+
+    companion object { const val DROP_SECTORS = 8 }
+
+    private fun pickupKey(segIndex: Int, t: PowerUpType): Long = player.lap.toLong() * 10_000_000L + segIndex * 31L + t.ordinal
+    fun isCollected(segIndex: Int, t: PowerUpType): Boolean = collected.contains(pickupKey(segIndex, t))
+
+    /**
+     * Random Shield and Reflect drops, different every race: the lap is split into
+     * [DROP_SECTORS] sectors and each sector gets one drop (half shields, half reflects,
+     * shuffled) at a random spot and lane. Like all power-ups they come back every lap.
+     */
+    private fun placeRandomDrops(rnd: Random) {
+        val n = track.segments.size
+        val types = (List(DROP_SECTORS / 2) { PowerUpType.SHIELD } + List(DROP_SECTORS - DROP_SECTORS / 2) { PowerUpType.REFLECT }).shuffled(rnd)
+        val first = 40; val usable = n - 30 - first
+        if (usable < DROP_SECTORS) return
+        val sector = usable / DROP_SECTORS
+        for (k in 0 until DROP_SECTORS) {
+            var idx = first + k * sector + rnd.nextInt(sector)
+            // keep off segments that already hold a power-up
+            var tries = 0
+            while (track.segments[idx].sprites.isNotEmpty() && tries++ < sector) idx = first + k * sector + rnd.nextInt(sector)
+            if (track.segments[idx].sprites.isNotEmpty()) continue
+            randomDrops.getOrPut(idx) { ArrayList() }.add(TrackSprite(types[k], -0.75f + rnd.nextInt(4) * 0.5f))
         }
     }
 
@@ -138,8 +173,8 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         // pickups
         val pSeg = (player.z / C.SEG_LEN).toInt()
         val seg = track.segAt(player.z)
-        for (s in seg.sprites) {
-            val key = seg.index * 31 + s.type.ordinal
+        for (s in spritesAt(seg)) {
+            val key = pickupKey(seg.index, s.type)
             if (!collected.contains(key) && abs(player.x - s.x) < 0.35f && player.speed > 0f) {
                 collected.add(key)
                 applyPickup(player, s.type)
@@ -383,14 +418,14 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             WeaponType.ROCKET -> {
                 if (r.rockets <= 0) return false
                 r.rockets--
-                val p = Projectile(WeaponType.ROCKET, wrapZ(r.z + 300f), r.x, r.speed + 8000f, r, Arms.ROCKET_DMG)
+                val p = Projectile(WeaponType.ROCKET, wrapZ(r.z + 300f), r.x, r.speed + 8000f, r, r.rocketDamage())
                 projectiles.add(p)
                 if (r.isPlayer) emit(p.toEvent(r.uid))
             }
             WeaponType.SEEKER, WeaponType.HUNTER, WeaponType.LEADER -> {
                 if (!r.missiles.remove(w)) return false
                 val target = missileTarget(r, w)
-                val p = Projectile(w, wrapZ(r.z + 300f), r.x, r.speed + 7000f, r, Arms.MISSILE_DMG, target)
+                val p = Projectile(w, wrapZ(r.z + 300f), r.x, r.speed + 7000f, r, r.missileDamage(), target)
                 projectiles.add(p)
                 if (r.isPlayer) {
                     emit(p.toEvent(r.uid))
@@ -401,7 +436,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             WeaponType.MINE -> {
                 if (r.mines <= 0) return false
                 r.mines--
-                val m = MineObj(wrapZ(r.z - 400f), r.x, r, Arms.MINE_DMG)
+                val m = MineObj(wrapZ(r.z - 400f), r.x, r, r.mineDamage())
                 mines.add(m)
                 if (r.isPlayer) emit(NetEvent("mine", r.uid, WeaponType.MINE.ordinal, m.z, m.x, 0f, m.damage))
             }

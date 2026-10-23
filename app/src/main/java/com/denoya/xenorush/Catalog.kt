@@ -3,11 +3,11 @@ package com.denoya.xenorush
 /**
  * Every vehicle carries the full loadout:
  *  BULLET  machine gun, 100 rounds max, 5-15 hp per hit (scales with the Weapon upgrade)
- *  ROCKET  unguided, 4 max, 40 hp
+ *  ROCKET  unguided, 4 max, 20-40 hp (Rocket upgrade)
  *  SEEKER  guided missile, locks the nearest racer ahead          } 2 guided
  *  HUNTER  guided missile, locks the racer one position ahead     } missiles max
- *  LEADER  guided missile, locks the race leader                  } (75 hp each)
- *  MINE    dropped behind, 3 max, 50 hp
+ *  LEADER  guided missile, locks the race leader                  } (55-75 hp, Missile upgrade)
+ *  MINE    dropped behind, 3 max, 40-60 hp (Mine upgrade)
  */
 enum class WeaponType { BULLET, ROCKET, SEEKER, HUNTER, LEADER, MINE;
     val guided: Boolean get() = this == SEEKER || this == HUNTER || this == LEADER
@@ -20,14 +20,18 @@ object Arms {
     const val MAX_ROCKETS = 4
     const val MAX_MISSILES = 2
     const val MAX_MINES = 3
-    const val ROCKET_DMG = 40f
-    const val MISSILE_DMG = 75f
-    const val MINE_DMG = 50f
     const val GUN_INTERVAL = 0.12f     // ~8 rounds per second while held
     const val SHIELD_PICKUP = 50
     const val REPAIR_PICKUP = 35
     /** Weapon upgrade 1..10 -> 5..15 hp per bullet. */
     fun bulletDamage(weaponLevel: Int): Float = 5f + (weaponLevel.coerceIn(1, 10) - 1) * 10f / 9f
+    /** Rocket upgrade 1..10 -> 20..40 hp. */
+    fun rocketDamage(level: Int): Float = scale(20f, 40f, level)
+    /** Missile upgrade 1..10 -> 55..75 hp (all three guided missiles). */
+    fun missileDamage(level: Int): Float = scale(55f, 75f, level)
+    /** Mine upgrade 1..10 -> 40..60 hp. */
+    fun mineDamage(level: Int): Float = scale(40f, 60f, level)
+    private fun scale(lo: Float, hi: Float, level: Int): Float = lo + (level.coerceIn(1, 10) - 1) * (hi - lo) / 9f
 
     fun name(w: WeaponType): String = when (w) {
         WeaponType.BULLET -> "Machine Gun"
@@ -69,6 +73,15 @@ data class TrackDef(
 object Catalog {
     const val FREE_VEHICLES = 5
     const val FREE_TRACKS = 5
+    /** Credits (earned by winning races) can raise a stat to this level; 6-10 are paid unlocks. */
+    const val FREE_UPGRADE_MAX = 5
+    const val MAX_UPGRADE = 10
+    /** Racers per single-player race: you + 4 AI. */
+    const val RACERS_PER_RACE = 5
+    /** Upgrade stat keys: engine, thrusters, stabilizers, weapon (gun), rockets, missiles, mines. */
+    val STATS = listOf("e", "a", "g", "w", "r", "m", "n")
+    /** True if the next level of a stat currently at [level] can be bought with race credits. */
+    fun creditUpgradeAllowed(level: Int): Boolean = level < FREE_UPGRADE_MAX
 
     const val XRP_DROPS = 1_000_000L
 

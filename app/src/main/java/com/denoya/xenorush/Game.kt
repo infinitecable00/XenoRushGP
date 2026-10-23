@@ -15,7 +15,41 @@ import com.google.zxing.qrcode.QRCodeWriter
 import kotlin.math.abs
 import kotlin.random.Random
 
-enum class Screen { TITLE, MENU, TRACKS, GARAGE, VEHICLE, SHOP, PAY, SETTINGS, RACE, RESULTS, PAUSED, ACCOUNT, MP_LOBBY }
+enum class Screen { TITLE, MENU, TRACKS, GARAGE, VEHICLE, SHOP, PAY, SETTINGS, RACE, RESULTS, PAUSED, ACCOUNT, MP_LOBBY, UPDATES, CREDITS_INFO }
+
+/** In-game "Updates" screen: newest first. */
+object Changelog {
+    const val VERSION = "1.3.0"
+    val ENTRIES = listOf(
+        "v1.3.0" to listOf(
+            "Rockets, missiles and mines upgradable 1-10",
+            "Rockets 20-40, missiles 55-75, mines 40-60 hp",
+            "Race credits upgrade to level 5",
+            "Levels 6-10 are paid unlocks",
+            "Random Shield and Reflect drops on every course",
+            "Power-ups come back every lap",
+            "Races are now 5 racers",
+            "New Updates and Credits screens",
+            "Multiplayer coming soon"
+        ),
+        "v1.2.0" to listOf(
+            "Guns, rockets, 3 guided missiles, mines",
+            "100 hull and 100 shield on every ship",
+            "XRP payments on mainnet"
+        ),
+        "v1.1.0" to listOf(
+            "Google sign-in and cloud save",
+            "USD prices, paid in XRP at the live rate",
+            "Single player works fully offline"
+        ),
+        "v1.0.0" to listOf("First release: 30 tracks, 22 vehicles")
+    )
+}
+
+object CompanyInfo {
+    const val COMPANY = "Beam Galactic INC"
+    const val SUPPORT_EMAIL = "support@beamgalactic.com"
+}
 
 class UpgDef(val label: String, val stat: String, val get: () -> Int, val inc: () -> Unit)
 
@@ -196,10 +230,12 @@ class Game(private val context: Context, private val activity: Activity?) {
         val vs = save.vehicleState(save.selectedVehicle)
         val player = Racer(vDef, vs, true, 1f)
         val rng = Random(tDef.seed + 13)
-        val ais = (0 until 7).map {
+        val ais = (0 until Catalog.RACERS_PER_RACE - 1).map {
             val vid = rng.nextInt(22)
             val skill = (0.80f + tDef.difficulty * 0.032f + rng.nextFloat() * 0.08f).coerceAtMost(1.02f)
-            Racer(Catalog.VEHICLES[vid], VehicleState(true, 1, 1, 1, 1), false, skill)
+            // AI weapons get stronger on harder tracks (difficulty 1-5 -> weapon levels 1-5)
+            val d = tDef.difficulty.coerceIn(1, Catalog.FREE_UPGRADE_MAX)
+            Racer(Catalog.VEHICLES[vid], VehicleState(true, 1, 1, 1, d, d, d, d), false, skill)
         }
         race = Race(track, ais + player, 0)
         raceStartWall = System.currentTimeMillis() + 4000
@@ -460,6 +496,8 @@ class Game(private val context: Context, private val activity: Activity?) {
             Screen.SHOP -> drawShop(c)
             Screen.PAY -> drawPay(c)
             Screen.SETTINGS -> drawSettings(c)
+            Screen.UPDATES -> drawUpdates(c)
+            Screen.CREDITS_INFO -> drawCreditsInfo(c)
             Screen.ACCOUNT -> drawAccount(c)
             Screen.MP_LOBBY -> drawLobby(c)
             Screen.RACE -> {
@@ -540,7 +578,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         val r = RectF(w * 0.25f, h * 0.62f, w * 0.75f, h * 0.70f)
         renderer.drawButton(c, r, "TAP TO START", Color.argb(255, 40, 60, 140), (System.currentTimeMillis() / 600) % 2 == 0L, h * 0.03f)
         buttons.add(r to { screen = Screen.MENU })
-        renderer.drawTextCentered(c, "v1.2  •  single player works offline", w / 2f, h * 0.95f, h * 0.018f, Color.argb(140, 130, 140, 180))
+        renderer.drawTextCentered(c, "v${Changelog.VERSION}  •  single player works offline", w / 2f, h * 0.95f, h * 0.018f, Color.argb(140, 130, 140, 180))
     }
 
     // ---------- MAIN MENU ----------
@@ -550,19 +588,21 @@ class Game(private val context: Context, private val activity: Activity?) {
         renderer.drawTextCentered(c, "CREDITS: ${save.credits} CR", w / 2f, h * 0.13f, h * 0.026f, Color.argb(255, 255, 214, 90))
 
         val bw = w * 0.8f
-        val rowH = h * 0.072f
-        var y = h * 0.165f
+        val rowH = h * 0.062f
+        var y = h * 0.16f
         val sel = Catalog.VEHICLES[save.selectedVehicle]
         val ts = save.trackState(selectedTrack)
         val items = listOf(
             Triple("RACE  •  ${Catalog.TRACKS[selectedTrack].name}", Color.argb(255, 40, 60, 150)) {
                 if (ts.owned) startRace(selectedTrack) else { toast("Track locked - get the Track Pack"); screen = Screen.SHOP; shopTab = 1 }
             },
-            Triple(if (online) "MULTIPLAYER (2-4 online)" else "MULTIPLAYER  -  needs internet", if (online) Color.argb(255, 150, 40, 90) else Color.argb(255, 70, 60, 70)) { openMultiplayer() },
+            Triple("MULTIPLAYER  -  COMING SOON", Color.argb(255, 70, 60, 70)) { toast("Multiplayer is coming soon") },
             Triple("GARAGE", Color.argb(255, 70, 50, 140)) { screen = Screen.GARAGE },
             Triple("TRACK SELECT", Color.argb(255, 40, 100, 140)) { screen = Screen.TRACKS },
             Triple("XRP SHOP", Color.argb(255, 150, 110, 30)) { screen = Screen.SHOP; refreshPrice() },
             Triple("ACCOUNT  /  CLOUD SAVE", Color.argb(255, 40, 110, 90)) { accountMsg = ""; screen = Screen.ACCOUNT },
+            Triple("UPDATES", Color.argb(255, 40, 90, 120)) { scroll = 0f; screen = Screen.UPDATES },
+            Triple("CREDITS", Color.argb(255, 90, 60, 120)) { screen = Screen.CREDITS_INFO },
             Triple("SETTINGS", Color.argb(255, 80, 80, 100)) { screen = Screen.SETTINGS }
         )
         for ((label, col, action) in items) {
@@ -574,10 +614,86 @@ class Game(private val context: Context, private val activity: Activity?) {
         renderer.drawTextCentered(c, if (online) "ONLINE" else "OFFLINE  -  single player available", w / 2f, y + h * 0.01f, h * 0.018f,
             if (online) Color.argb(200, 120, 230, 160) else Color.argb(200, 200, 170, 120))
         // current vehicle preview
-        renderer.drawCarShape(c, w / 2f, h * 0.78f, w * 0.14f, sel.color, 0f)
-        renderer.drawTextCentered(c, "${sel.name}  •  ${(sel.topSpeed * 0.045).toInt()} km/h", w / 2f, h * 0.84f, h * 0.024f, Color.WHITE)
+        renderer.drawCarShape(c, w / 2f, h * 0.81f, w * 0.12f, sel.color, 0f)
+        renderer.drawTextCentered(c, "${sel.name}  •  ${(sel.topSpeed * 0.045).toInt()} km/h", w / 2f, h * 0.865f, h * 0.024f, Color.WHITE)
         val vs = save.vehicleState(save.selectedVehicle)
-        renderer.drawTextCentered(c, "Upgrades  E${vs.e} A${vs.a} G${vs.g} W${vs.w}", w / 2f, h * 0.88f, h * 0.022f, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "ENG ${vs.e}  THR ${vs.a}  STB ${vs.g}  GUN ${vs.w}  RKT ${vs.r}  MSL ${vs.m}  MINE ${vs.n}", w / 2f, h * 0.9f, h * 0.019f, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "© ${CompanyInfo.COMPANY}", w / 2f, h * 0.94f, h * 0.017f, Color.argb(140, 130, 140, 180))
+    }
+
+    // ---------- UPDATES ----------
+    private fun drawUpdates(c: Canvas) {
+        bg(c)
+        header(c, "UPDATES") { screen = Screen.MENU }
+        renderer.drawTextCentered(c, "Installed: v${Changelog.VERSION}", w / 2f, h * 0.11f, h * 0.022f, Color.argb(255, 0, 229, 255))
+        val chk = RectF(w * 0.2f, h * 0.13f, w * 0.8f, h * 0.18f)
+        renderer.drawButton(c, chk, if (online) "CHECK FOR UPDATES" else "CHECK FOR UPDATES  -  N/A offline",
+            if (online) Color.argb(255, 40, 60, 150) else Color.argb(255, 70, 70, 80), false, h * 0.02f)
+        buttons.add(chk to { if (online) openStoreListing() else toast("Update check N/A - offline") })
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.textAlign = Paint.Align.LEFT
+        var y = h * 0.23f - scroll
+        for ((ver, lines) in Changelog.ENTRIES) {
+            p.textSize = h * 0.026f; p.color = Color.argb(255, 255, 214, 90)
+            if (y > h * 0.19f && y < h) c.drawText(ver, w * 0.06f, y, p)
+            y += h * 0.038f
+            p.textSize = h * 0.02f; p.color = Color.argb(230, 210, 220, 245)
+            for (ln in lines) {
+                if (y > h * 0.19f && y < h) {
+                    val line = "•  $ln"
+                    val ts = p.textSize; val mw = w * 0.9f; val lw = p.measureText(line)
+                    if (lw > mw) p.textSize = ts * mw / lw
+                    c.drawText(line, w * 0.08f, y, p); p.textSize = ts
+                }
+                y += h * 0.032f
+            }
+            y += h * 0.02f
+        }
+        updatesContentH = y + scroll - h * 0.23f
+    }
+    private var updatesContentH = 0f
+
+    private fun openStoreListing() {
+        val act = activity ?: return
+        act.runOnUiThread {
+            try {
+                act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("market://details?id=" + act.packageName)))
+            } catch (_: Exception) {
+                try {
+                    act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://play.google.com/store/apps/details?id=" + act.packageName)))
+                } catch (_: Exception) { toast("No app store available") }
+            }
+        }
+    }
+
+    // ---------- CREDITS ----------
+    private fun drawCreditsInfo(c: Canvas) {
+        bg(c)
+        header(c, "CREDITS") { screen = Screen.MENU }
+        renderer.drawTextCentered(c, "XENORUSH GP", w / 2f, h * 0.18f, h * 0.045f, Color.argb(255, 0, 229, 255))
+        renderer.drawTextCentered(c, "v${Changelog.VERSION}", w / 2f, h * 0.22f, h * 0.02f, Color.argb(180, 160, 170, 210))
+        renderer.drawTextCentered(c, "Developed and published by", w / 2f, h * 0.31f, h * 0.022f, Color.argb(220, 170, 180, 220))
+        renderer.drawTextCentered(c, CompanyInfo.COMPANY, w / 2f, h * 0.36f, h * 0.036f, Color.argb(255, 255, 214, 90))
+        renderer.drawTextCentered(c, "Support", w / 2f, h * 0.47f, h * 0.022f, Color.argb(220, 170, 180, 220))
+        val mail = RectF(w * 0.12f, h * 0.49f, w * 0.88f, h * 0.55f)
+        renderer.drawButton(c, mail, CompanyInfo.SUPPORT_EMAIL, Color.argb(255, 40, 60, 150), false, h * 0.024f)
+        buttons.add(mail to { emailSupport() })
+        renderer.drawTextCentered(c, "Tap to email support", w / 2f, h * 0.58f, h * 0.018f, Color.argb(160, 130, 140, 180))
+        renderer.drawTextCentered(c, "Payments in XRP on the XRP Ledger", w / 2f, h * 0.68f, h * 0.019f, Color.argb(180, 160, 170, 210))
+        renderer.drawTextCentered(c, "© ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)} ${CompanyInfo.COMPANY}. All rights reserved.", w / 2f, h * 0.92f, h * 0.018f, Color.argb(160, 130, 140, 180))
+    }
+
+    private fun emailSupport() {
+        val act = activity ?: return
+        act.runOnUiThread {
+            try {
+                val i = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:" + CompanyInfo.SUPPORT_EMAIL))
+                i.putExtra(android.content.Intent.EXTRA_SUBJECT, "XenoRush GP support (v${Changelog.VERSION})")
+                act.startActivity(i)
+            } catch (_: Exception) { toast("Email ${CompanyInfo.SUPPORT_EMAIL}") }
+        }
     }
 
     // ---------- TRACK SELECT ----------
@@ -679,7 +795,11 @@ class Game(private val context: Context, private val activity: Activity?) {
         p.textSize = h * 0.022f
         p.color = Color.argb(230, 170, 180, 220)
         p.textAlign = Paint.Align.CENTER
-        c.drawText("Gun ${Arms.bulletDamage(vs.w).toInt()}hp/bullet  •  4 rockets  •  2 missiles  •  mines", w / 2f, h * 0.20f, p)
+        p.textSize = h * 0.019f
+        val dmgLine = "Gun ${Arms.bulletDamage(vs.w).toInt()}hp  •  Rocket ${Arms.rocketDamage(vs.r).toInt()}hp  •  Missile ${Arms.missileDamage(vs.m).toInt()}hp  •  Mine ${Arms.mineDamage(vs.n).toInt()}hp"
+        p.measureText(dmgLine).let { if (it > w * 0.94f) p.textSize *= w * 0.94f / it }
+        c.drawText("Gun ${Arms.bulletDamage(vs.w).toInt()}hp  •  Rocket ${Arms.rocketDamage(vs.r).toInt()}hp  •  Missile ${Arms.missileDamage(vs.m).toInt()}hp  •  Mine ${Arms.mineDamage(vs.n).toInt()}hp", w / 2f, h * 0.20f, p)
+        p.textSize = h * 0.022f
         c.drawText("CREDITS: ${save.credits} CR", w / 2f, h * 0.23f, p)
 
         // stat bars with upgrade buttons
@@ -687,43 +807,52 @@ class Game(private val context: Context, private val activity: Activity?) {
             UpgDef("ENGINE  (top speed)", "e", { vs.e }, { vs.e++ }),
             UpgDef("THRUSTERS  (acceleration)", "a", { vs.a }, { vs.a++ }),
             UpgDef("STABILIZERS  (grip)", "g", { vs.g }, { vs.g++ }),
-            UpgDef("WEAPON  (bullet dmg 5-15)", "w", { vs.w }, { vs.w++ })
+            UpgDef("GUNS  (bullet dmg 5-15)", "w", { vs.w }, { vs.w++ }),
+            UpgDef("ROCKETS  (dmg 20-40)", "r", { vs.r }, { vs.r++ }),
+            UpgDef("MISSILES  (dmg 55-75)", "m", { vs.m }, { vs.m++ }),
+            UpgDef("MINES  (dmg 40-60)", "n", { vs.n }, { vs.n++ })
         )
-        var y = h * 0.27f
+        var y = h * 0.265f
         for (u in upgrades) {
             val label = u.label
             val lvl = u.get()
-            renderer.drawTextCentered(c, "$label   LVL $lvl/10", w / 2f, y, h * 0.024f, Color.WHITE)
+            renderer.drawTextCentered(c, "$label   LVL $lvl/10", w * 0.04f, y, h * 0.018f, Color.WHITE, Paint.Align.LEFT)
             // 10 segment bar
             val barW = w * 0.5f
             val bx = w * 0.04f
-            val by = y + h * 0.012f
+            val by = y + h * 0.016f
             for (i in 0 until 10) {
                 val pseg = Paint()
-                pseg.color = if (i < lvl) Color.argb(255, 0, 229, 255) else Color.argb(255, 40, 45, 70)
-                c.drawRect(bx + i * barW / 10f, by, bx + (i + 1) * barW / 10f - 3f, by + h * 0.018f, pseg)
+                // levels 6-10 (paid tier) shown in gold
+                pseg.color = if (i < lvl) (if (i < Catalog.FREE_UPGRADE_MAX) Color.argb(255, 0, 229, 255) else Color.argb(255, 255, 196, 60))
+                             else (if (i < Catalog.FREE_UPGRADE_MAX) Color.argb(255, 40, 45, 70) else Color.argb(255, 70, 58, 36))
+                c.drawRect(bx + i * barW / 10f, by, bx + (i + 1) * barW / 10f - 3f, by + h * 0.016f, pseg)
             }
             if (vs.owned) {
-                if (lvl < 10) {
-                    val cost = Catalog.upgradeCost(v.id, lvl)
-                    val r = RectF(w * 0.56f, by - h * 0.012f, w * 0.75f, by + h * 0.032f)
-                    val can = save.credits >= cost
-                    renderer.drawButton(c, r, "$cost CR", if (can) Color.argb(255, 40, 60, 150) else Color.argb(255, 70, 70, 80), false, h * 0.018f)
+                if (lvl < Catalog.MAX_UPGRADE) {
+                    val r = RectF(w * 0.56f, by - h * 0.01f, w * 0.75f, by + h * 0.028f)
+                    if (Catalog.creditUpgradeAllowed(lvl)) {
+                        val cost = Catalog.upgradeCost(v.id, lvl)
+                        val can = save.credits >= cost
+                        renderer.drawButton(c, r, "$cost CR", if (can) Color.argb(255, 40, 60, 150) else Color.argb(255, 70, 70, 80), false, h * 0.017f)
+                    } else {
+                        renderer.drawButton(c, r, "PAID ONLY", Color.argb(255, 60, 52, 40), false, h * 0.016f)
+                    }
                     buttons.add(r to { tryUpgrade(v.id, u) })
-                    val rx = RectF(w * 0.77f, by - h * 0.012f, w * 0.96f, by + h * 0.032f)
+                    val rx = RectF(w * 0.77f, by - h * 0.01f, w * 0.96f, by + h * 0.028f)
                     renderer.drawButton(c, rx, if (online) Pricing.fmtUsd(Pricing.UPGRADE_USD_CENTS) else "N/A",
-                        if (online) Color.argb(255, 150, 110, 30) else Color.argb(255, 70, 70, 80), false, h * 0.018f)
+                        if (online) Color.argb(255, 150, 110, 30) else Color.argb(255, 70, 70, 80), false, h * 0.017f)
                     buttons.add(rx to { startPayment(Pricing.upgradeId(v.id, u.stat)) })
                 } else {
-                    renderer.drawTextCentered(c, "MAX", w * 0.76f, by + h * 0.024f, h * 0.022f, Color.argb(255, 255, 214, 90))
+                    renderer.drawTextCentered(c, "MAX", w * 0.76f, by + h * 0.02f, h * 0.02f, Color.argb(255, 255, 214, 90))
                 }
             }
-            y += h * 0.075f
+            y += h * 0.055f
         }
 
         // bottom actions
         val btnW = w * 0.44f
-        val y2 = h * 0.62f
+        val y2 = h * 0.66f
         if (vs.owned) {
             val sel = RectF(w * 0.04f, y2, w * 0.04f + btnW, y2 + h * 0.06f)
             renderer.drawButton(c, sel, if (save.selectedVehicle == v.id) "SELECTED" else "SELECT", Color.argb(255, 30, 90, 60))
@@ -745,10 +874,13 @@ class Game(private val context: Context, private val activity: Activity?) {
             renderer.drawButton(c, buy, "UNLOCK  ${Pricing.label(Pricing.VEHICLE_USD_CENTS, if (online) xrpUsd else null)}", Color.argb(255, 150, 110, 30), false, h * 0.022f)
             buttons.add(buy to { startPayment("v${v.id}") })
         }
-        if (vs.owned) renderer.drawTextCentered(c, "Upgrade with race credits, or ${Pricing.fmtUsd(Pricing.UPGRADE_USD_CENTS)} in XRP per level", w / 2f, h * 0.70f, h * 0.019f, Color.argb(200, 255, 214, 90))
+        if (vs.owned) {
+            renderer.drawTextCentered(c, "Levels 1-5: race credits (win races)  •  Levels 6-10: paid", w / 2f, h * 0.745f, h * 0.018f, Color.argb(200, 255, 214, 90))
+            renderer.drawTextCentered(c, "${Pricing.fmtUsd(Pricing.UPGRADE_USD_CENTS)} in XRP per level (any level)", w / 2f, h * 0.772f, h * 0.018f, Color.argb(200, 255, 214, 90))
+        }
         if (screen == Screen.VEHICLE) refreshPrice()
         // stats summary
-        renderer.drawTextCentered(c, "Base: SPD ${(v.topSpeed * 0.045).toInt()}km/h  ACC ${v.accel.toInt()}  GRIP ${String.format("%.2f", v.grip)}  HULL ${Arms.MAX_HULL}  SHIELD ${Arms.MAX_SHIELD}", w / 2f, h * 0.74f, h * 0.02f, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "Base: SPD ${(v.topSpeed * 0.045).toInt()}km/h  ACC ${v.accel.toInt()}  GRIP ${String.format("%.2f", v.grip)}  HULL ${Arms.MAX_HULL}  SHIELD ${Arms.MAX_SHIELD}", w / 2f, h * 0.81f, h * 0.019f, Color.argb(200, 160, 170, 210))
     }
 
     // ---------- SHOP ----------
@@ -1064,7 +1196,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                 renderer.drawTextCentered(c, "Starting in ${left}s (or when 4 join)", w / 2f, y + h * 0.02f, h * 0.022f, Color.argb(255, 255, 214, 90))
             }
         }
-        renderer.drawTextCentered(c, "2-4 players. Host's track is used if everyone owns it,", w / 2f, h * 0.7f, h * 0.018f, Color.argb(180, 150, 160, 200))
+        renderer.drawTextCentered(c, "2-5 players. Host's track is used if everyone owns it,", w / 2f, h * 0.7f, h * 0.018f, Color.argb(180, 150, 160, 200))
         renderer.drawTextCentered(c, "otherwise a random free track.", w / 2f, h * 0.725f, h * 0.018f, Color.argb(180, 150, 160, 200))
         val bw = w * 0.6f
         if (s?.phase == MpSession.Phase.ERROR) {
@@ -1113,8 +1245,12 @@ class Game(private val context: Context, private val activity: Activity?) {
     /** Upgrade purchase: re-checks the CURRENT level and credits at execution time (cap 10). */
     private fun tryUpgrade(vehicleId: Int, u: UpgDef) {
         val lvl = u.get()
-        if (lvl >= 10) {
+        if (lvl >= Catalog.MAX_UPGRADE) {
             toast("Already at max level")
+            return
+        }
+        if (!Catalog.creditUpgradeAllowed(lvl)) {
+            toast("Levels 6-10 are paid unlocks (${Pricing.fmtUsd(Pricing.UPGRADE_USD_CENTS)} in XRP each)")
             return
         }
         val cost = Catalog.upgradeCost(vehicleId, lvl)
@@ -1163,6 +1299,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                 when (screen) {
                     Screen.TRACKS -> scroll = scroll.coerceIn(0f, (30 * h * 0.085f - h * 0.84f).coerceAtLeast(0f))
                     Screen.GARAGE -> scroll = scroll.coerceIn(0f, (22 * h * 0.085f - h * 0.84f).coerceAtLeast(0f))
+                    Screen.UPDATES -> scroll = scroll.coerceIn(0f, (updatesContentH - h * 0.72f).coerceAtLeast(0f))
                     Screen.SHOP -> {
                         val rows = if (shopTab == 0) 22f else 0f
                         scroll = scroll.coerceIn(0f, (rows * h * 0.075f - h * 0.8f).coerceAtLeast(0f))

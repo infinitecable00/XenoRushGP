@@ -13,7 +13,7 @@ object Pricing {
     const val TRACK_PACK_USD_CENTS = 999    // all 25 paid tracks
     const val TRACK_PACK_ID = "trackpack"
 
-    val STATS = listOf("e", "a", "g", "w")
+    val STATS = Catalog.STATS
 
     sealed class Item {
         data class Upgrade(val vehicleId: Int, val stat: String) : Item()
@@ -72,7 +72,8 @@ object Pricing {
 
     fun displayName(item: Item): String = when (item) {
         is Item.Upgrade -> "${Catalog.VEHICLES[item.vehicleId].name} " + when (item.stat) {
-            "e" -> "Engine +1"; "a" -> "Thrusters +1"; "g" -> "Stabilizers +1"; else -> "Weapon +1"
+            "e" -> "Engine +1"; "a" -> "Thrusters +1"; "g" -> "Stabilizers +1"
+            "r" -> "Rockets +1"; "m" -> "Missiles +1"; "n" -> "Mines +1"; else -> "Guns +1"
         }
         is Item.Vehicle -> Catalog.VEHICLES[item.vehicleId].name
         Item.TrackPack -> "Track Pack (25 tracks)"
