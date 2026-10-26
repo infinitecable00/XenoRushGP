@@ -80,6 +80,13 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
         return true
     }
 
+    fun releaseGame() {
+        running = false
+        try { thread?.join(1500) } catch (_: Exception) {}
+        thread = null
+        game?.onAppDestroy()
+    }
+
     fun pauseGame() {
         running = false
         thread?.join(1500)
@@ -90,6 +97,7 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback,
     }
 
     fun resumeGame() {
+        game?.onAppResume()
         game?.releaseAllControls()
         if (!running && holder.surface.isValid) {
             running = true

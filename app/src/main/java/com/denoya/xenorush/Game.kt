@@ -19,8 +19,14 @@ enum class Screen { TITLE, MENU, TRACKS, GARAGE, VEHICLE, SHOP, PAY, SETTINGS, R
 
 /** In-game "Updates" screen: newest first. */
 object Changelog {
-    const val VERSION = "1.5.0"
+    const val VERSION = "1.6.0"
     val ENTRIES = listOf(
+        "v1.6.0" to listOf(
+            "Menu music loops on the home screen",
+            "Race music starts after the lights and shuffles ten tracks",
+            "Music and sound-effect volume in Settings",
+            "Engine, boost, weapons, hits and pickups play sound effects"
+        ),
         "v1.5.0" to listOf(
             "The game now runs in landscape (turn the phone either way)",
             "Rearview mirror at the top middle of the race screen",
@@ -71,8 +77,9 @@ class UpgDef(val label: String, val stat: String, val get: () -> Int, val inc: (
 class Game(private val context: Context, private val activity: Activity?) {
     val renderer = Renderer()
     val music = MusicPlayer(context).also { m ->
-        m.onSongStart = { title -> toast("NOW PLAYING: $title - ${MusicConfig.ARTIST}") }
+        m.onSongStart = { title -> toast("NOW PLAYING: $title") }
     }
+    val sfx = SfxPlayer(context)
     val save: SaveData = SaveManager(context).load()
     private val saveManager = SaveManager(context)
 
@@ -106,6 +113,7 @@ class Game(private val context: Context, private val activity: Activity?) {
     private var raceResult: RaceResult? = null
 
     private var tone: ToneGenerator? = null
+    private var toneVol = -1
 
     // simple button system
     private var buttons = ArrayList<Pair<RectF, () -> Unit>>()
@@ -182,7 +190,6 @@ class Game(private val context: Context, private val activity: Activity?) {
         drainTouch()
         titleTime += dt
         refreshOnline()
-        syncMusic(dt)
         if (screen != Screen.RACE) maybeSync()
         mp?.tick()
         if (screen == Screen.MP_LOBBY) {
@@ -200,12 +207,14 @@ class Game(private val context: Context, private val activity: Activity?) {
             }
             r.update(dt, input, System.currentTimeMillis() - raceStartWall)
             if (screen == Screen.RACE) handleWeapons(r)
+            drainSfx(r)
             link.publish()
             if (r.finished && screen != Screen.RESULTS) finishMpRace()
+            syncAudio(dt)
             return
         }
-        if (screen == Screen.RACE) {
-            val r = race ?: return
+        if (screen == Screen.RACE && race != null) {
+            val r = race!!
             if (r.countdown > 0f) {
                 val ci = (r.countdown + 0.99f).toInt()
                 if (ci != lastCd) {
@@ -216,10 +225,12 @@ class Game(private val context: Context, private val activity: Activity?) {
             r.update(dt, input, System.currentTimeMillis() - raceStartWall)
             // fire handling (tap FIRE button)
             handleWeapons(r)
+            drainSfx(r)
             if (r.finished) {
                 finishRace()
             }
         }
+        syncAudio(dt)
     }
 
     private var lastSpecial = false
@@ -232,7 +243,8 @@ class Game(private val context: Context, private val activity: Activity?) {
         if (raceUi.cyclePressed && !lastCycle) { p.cycleSecondary(); beep(40, 40) }
         lastCycle = raceUi.cyclePressed
         if (raceUi.specialPressed && !lastSpecial && r.countdown <= 0f) {
-            if (r.fireSecondary(p)) beep(60, 90) else r.events.add("NO ${Arms.short(p.secondary)} LEFT")
+            // Fire cues live in Race.fireSecondary. A failed tap only shows the HUD message.
+            if (!r.fireSecondary(p)) r.events.add("NO ${Arms.short(p.secondary)} LEFT")
         }
         lastSpecial = raceUi.specialPressed
         raceUi.secondaryLabel = "${Arms.short(p.secondary)} ${p.count(p.secondary)}"
@@ -240,19 +252,51 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     // ---------------- race lifecycle ----------------
 
-    /** Music only plays while a race is actually running (after GO). */
-    private fun syncMusic(dt: Float) {
+    /**
+     * Menu music on every front-end screen. Race music only after GO, and only
+     * while the race is still running. The countdown and the results screen are silent.
+     * The pause menu holds the race track in place instead of switching back to the menu.
+     */
+    private fun syncAudio(dt: Float) {
         val r = mpLink?.race ?: race
-        val want = when (screen) {
-            Screen.RACE -> if (r != null && r.countdown <= 0f && !r.finished) MusicWant.PLAY else MusicWant.STOP
-            Screen.PAUSED -> MusicWant.PAUSE
-            else -> MusicWant.STOP
+        val racing = r != null && r.countdown <= 0f && !r.finished
+        val cue = when (screen) {
+            Screen.RACE, Screen.PAUSED -> if (racing) MusicCue.RACE else MusicCue.NONE
+            Screen.RESULTS -> MusicCue.NONE
+            else -> MusicCue.MENU
         }
-        music.update(want, save.music, dt)
+        music.update(cue, screen == Screen.PAUSED, save.music, save.musicVolume.coerceIn(0, 100) / 100f, dt)
+        val sfxVol = if (save.sound) save.sfxVolume.coerceIn(0, 100) / 100f else 0f
+        val driving = screen == Screen.RACE && r != null && r.countdown <= 0f && !r.finished && r.player.alive
+        val top = r?.player?.maxSpeed()?.coerceAtLeast(1f) ?: 1f
+        val ratio = if (r == null) 0f else r.player.speed / top
+        sfx.updateEngine(driving, ratio, (r?.player?.boostT ?: 0f) > 0f, sfxVol)
     }
 
-    /** App sent to background: the game loop stops, so pause music directly. */
-    fun onAppPause() = music.pause()
+    private fun drainSfx(r: Race) {
+        val cues = r.drainSfx()
+        if (cues.isEmpty() || screen != Screen.RACE || !save.sound) return
+        val vol = save.sfxVolume.coerceIn(0, 100) / 100f
+        if (vol <= 0f) return
+        for (c in cues) sfx.play(c, vol)
+    }
+
+    /** App sent to background: the game loop stops, so pause music and effects directly. */
+    fun onAppPause() {
+        music.pause()
+        sfx.onAppPause()
+    }
+
+    /** App returned to the foreground. Race music stays paused if the pause menu is up. */
+    fun onAppResume() = sfx.onAppResume()
+
+    /** Activity is going away. Release players so they cannot leak. */
+    fun onAppDestroy() {
+        music.release()
+        sfx.release()
+        try { tone?.release() } catch (_: Exception) {}
+        tone = null
+    }
 
     fun startRace(trackId: Int) {
         music.newRace()
@@ -1075,15 +1119,15 @@ class Game(private val context: Context, private val activity: Activity?) {
     private fun drawSettings(c: Canvas) {
         bg(c)
         header(c, "SETTINGS") { screen = Screen.MENU }
-        val gap = 2.5f * U
+        val gap = 2f * U
         val colW = (w - 6f * U - gap) / 2f
-        val bh = 13f * U
+        val bh = 11.5f * U
         fun cell(i: Int): RectF {
             val x = 3f * U + (i % 2) * (colW + gap)
-            val y = 19f * U + (i / 2) * (bh + gap)
+            val y = 18f * U + (i / 2) * (bh + gap)
             return RectF(x, y, x + colW, y + bh)
         }
-        val ts = 4.6f * U
+        val ts = 4.2f * U
         val net = cell(0)
         renderer.drawButton(c, net, "NETWORK: ${if (save.mainnet) "MAINNET (real XRP)" else "TESTNET (play money)"}", if (save.mainnet) Color.argb(255, 150, 60, 40) else Color.argb(255, 40, 110, 90), false, ts)
         buttons.add(net to {
@@ -1096,18 +1140,24 @@ class Game(private val context: Context, private val activity: Activity?) {
         renderer.drawButton(c, addr, "WALLET: ${if (save.merchantAddress.isBlank()) "NOT SET" else save.merchantAddress.take(10) + "..."} (locked)", Color.argb(255, 50, 55, 90), false, ts)
         buttons.add(addr to { toast("The merchant address is set by the developer in Xrp.kt") })
         val snd = cell(2)
-        renderer.drawButton(c, snd, "SOUND: ${if (save.sound) "ON" else "OFF"}", Color.argb(255, 60, 70, 110), false, ts)
+        renderer.drawButton(c, snd, "SFX: ${if (save.sound) "ON" else "OFF"}", Color.argb(255, 60, 70, 110), false, ts)
         buttons.add(snd to { save.sound = !save.sound; saveManager.save(save) })
-        val mus = cell(3)
-        renderer.drawButton(c, mus, if (music.songCount == 0) "MUSIC: no songs installed" else "RACE MUSIC: ${if (save.music) "ON" else "OFF"}  (${music.songCount} songs)", Color.argb(255, 70, 60, 120), false, ts)
+        val sfxVol = cell(3)
+        renderer.drawButton(c, sfxVol, "SFX VOLUME: ${save.sfxVolume}%", Color.argb(255, 50, 70, 120), false, ts)
+        buttons.add(sfxVol to { save.sfxVolume = nextVolume(save.sfxVolume); saveManager.save(save) })
+        val mus = cell(4)
+        renderer.drawButton(c, mus, if (music.songCount == 0) "MUSIC: no songs installed" else "RACE MUSIC: ${if (save.music) "ON" else "OFF"} (${music.songCount} songs)", Color.argb(255, 70, 60, 120), false, ts)
         buttons.add(mus to { save.music = !save.music; saveManager.save(save) })
-        val reset = cell(4)
+        val musVol = cell(5)
+        renderer.drawButton(c, musVol, "MUSIC VOLUME: ${save.musicVolume}%", Color.argb(255, 80, 55, 120), false, ts)
+        buttons.add(musVol to { save.musicVolume = nextVolume(save.musicVolume); saveManager.save(save) })
+        val reset = cell(6)
         renderer.drawButton(c, reset, "RESET ALL PROGRESS", Color.argb(255, 140, 40, 40), false, ts)
         buttons.add(reset to { confirmReset() })
 
-        renderer.drawTextCentered(c, "Merchant wallet is developer-set and receives payments.", w / 2f, 76f * U, 3.6f * U, Color.argb(200, 160, 170, 210))
-        renderer.drawTextCentered(c, "The game never asks for private keys or seeds.", w / 2f, 82.5f * U, 3.6f * U, Color.argb(200, 160, 170, 210))
-        renderer.drawTextCentered(c, "Entitlements are stored on-device (prototype-grade).", w / 2f, 89f * U, 3.2f * U, Color.argb(160, 140, 150, 190))
+        renderer.drawTextCentered(c, "Merchant wallet is developer-set and receives payments.", w / 2f, 78f * U, 3.4f * U, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "The game never asks for private keys or seeds.", w / 2f, 84f * U, 3.4f * U, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "Entitlements are stored on-device (prototype-grade).", w / 2f, 90f * U, 3.2f * U, Color.argb(160, 140, 150, 190))
     }
 
     private fun confirmReset() {
@@ -1459,10 +1509,24 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     // ---------------- sound ----------------
 
+    /** Cycles 100 -> 75 -> 50 -> 25 -> 0 -> 100. */
+    private fun nextVolume(current: Int): Int = when {
+        current <= 0 -> 100
+        current <= 25 -> 0
+        current <= 50 -> 25
+        current <= 75 -> 50
+        else -> 75
+    }
+
     fun beep(volume: Int, durationMs: Int) {
-        if (!save.sound) return
+        if (!save.sound || save.sfxVolume <= 0) return
+        val v = (volume * save.sfxVolume / 100).coerceIn(1, 100)
         try {
-            if (tone == null) tone = ToneGenerator(AudioManager.STREAM_MUSIC, volume)
+            if (tone == null || toneVol != v) {
+                try { tone?.release() } catch (_: Exception) {}
+                tone = ToneGenerator(AudioManager.STREAM_MUSIC, v)
+                toneVol = v
+            }
             tone?.startTone(ToneGenerator.TONE_PROP_BEEP2, durationMs)
         } catch (_: Exception) {
         }

@@ -4,8 +4,8 @@ An F-Zero-inspired futuristic combat racer for Android, with on-track power-ups,
 weapons, a 1-10 upgrade scale, 30 tracks, 22 vehicles, XRP-powered unlocks, optional Google
 sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as "coming soon".
 
-> **Status: development prototype (v1.5).** The APK builds cleanly and the game logic is
-> covered by an automated 192-check JVM test suite (full simulated race, live XRPL mainnet
+> **Status: development prototype (v1.6).** The APK builds cleanly and the game logic is
+> covered by an automated JVM test suite (full simulated race, live XRPL mainnet
 > queries, live XRP price, save merging, and a simulated two-device multiplayer match).
 > It has NOT been run on a real Android device yet. Google sign-in, cloud save and
 > multiplayer need a Firebase project (see below) and have not been tested against a live
@@ -36,23 +36,23 @@ sign-in with cloud save. Online multiplayer (2-5 players) is built but shown as 
 - **Updates screen** (what's new + check for updates) and **Credits screen**
   (Beam Galactic INC, support: support@beamgalactic.com)
 
-## Race music
+## Music and sound effects
 
-Race music is by **InfiniteCable**. A random song starts right after GO, every race. Songs
-are shuffled so each one plays before any repeats, never twice in a row; if a song ends
-mid-race the next one starts. Music pauses with the game (pause menu or app in the
-background) and fades out at the finish. Toggle it in Settings.
+Menu music loops on the title screen and every menu. Race music stays silent through the
+start countdown, then plays a shuffled track from the ten bundled songs and moves on to
+another when that one ends (never the same song twice in a row). It fades out on the
+results screen or when the player quits, and the menu loop comes back. Music pauses when
+the app is backgrounded.
 
-Songs are bundled in the APK, so music works offline:
+Sound effects (engine, boost, weapons, hits, pickups) go through SoundPool. The shipped
+files in `app/src/main/assets/sfx/` are short placeholders; replace them with real
+recordings of the same name. A missing file is silent.
 
-1. Put audio files (mp3, ogg, m4a, aac, wav, flac) in `app/src/main/assets/music/`.
-2. Rebuild. No code changes needed.
-3. File names become the "NOW PLAYING" title: `03_Neon_Overdrive.mp3` shows as
-   "Neon Overdrive" (leading track numbers and "InfiniteCable - " are removed).
+Settings has music and SFX on/off plus a volume step for each. Full file names, slot
+list, and trigger points are in [docs/AUDIO.md](docs/AUDIO.md).
 
 Spotify can't be used for this: its developer policy prohibits using the Spotify Platform
 in games (https://developer.spotify.com/policy). Use your own master files instead.
-Tip: 192-256 kbps MP3 or OGG keeps the APK small (about 2-3 MB per 3-minute song).
 
 ## Combat
 
@@ -217,7 +217,8 @@ app/src/main/java/com/denoya/xenorush/
 ├── Save.kt           — local save file
 ├── Net.kt            — connectivity check
 ├── Cloud.kt          — Google sign-in (Credential Manager + Firebase Auth), Firestore save
-├── Music.kt / MusicLogic.kt — race music player + shuffle (assets/music/)
+├── Music.kt / MusicLogic.kt — menu loop + shuffled race music (assets/music/)
+├── Sfx.kt / SfxLogic.kt — SoundPool effects and the engine loop (assets/sfx/)
 ├── MpSession.kt      — multiplayer matchmaking, host logic, race link (pure Kotlin)
 ├── MpFirebase.kt     — multiplayer transport on Firebase Realtime Database
 ├── Xrp.kt            — XRPL JSON-RPC client + payment verification
@@ -233,7 +234,7 @@ app/src/main/java/com/denoya/xenorush/
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 192/192 checks. v1.5 added: the rearview mirror camera (cars behind
+A JVM test harness (copies of the pure-Kotlin files) passes 209/209 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
 show up centred, left/right the right way round like a real mirror, closer cars bigger,
 nothing ahead or out of range, wrap-around at the finish line, bends behind you, farthest-first
 draw order). v1.4 added: music shuffle (each song once per cycle, no

@@ -34,6 +34,10 @@ class SaveData {
     var merchantAddress: String = ""
     var sound: Boolean = true
     var music: Boolean = true
+    /** 0..100. Scales effects when [sound] is on. 0 is silent. */
+    var sfxVolume: Int = 100
+    /** 0..100. Scales music when [music] is on. 100 is [MusicConfig.VOLUME]. */
+    var musicVolume: Int = 100
 
     fun vehicleState(id: Int): VehicleState = vehicles.getOrPut(id) {
         VehicleState(id < Catalog.FREE_VEHICLES, 1, 1, 1, 1)
@@ -86,7 +90,8 @@ object SaveCodec {
                     .put("usdCents", it.usdCents).put("xrpUsd", it.xrpUsd))
             }
             json.put("settings", JSONObject().put("mainnet", sd.mainnet)
-                .put("merchant", sd.merchantAddress).put("sound", sd.sound).put("music", sd.music))
+                .put("merchant", sd.merchantAddress).put("sound", sd.sound).put("music", sd.music)
+                .put("sfxVolume", sd.sfxVolume).put("musicVolume", sd.musicVolume))
         }
         return json.toString()
     }
@@ -129,6 +134,8 @@ object SaveCodec {
                 sd.merchantAddress = st.optString("merchant", "")
                 sd.sound = st.optBoolean("sound", true)
                 sd.music = st.optBoolean("music", true)
+                sd.sfxVolume = st.optInt("sfxVolume", 100).coerceIn(0, 100)
+                sd.musicVolume = st.optInt("musicVolume", 100).coerceIn(0, 100)
             }
         } catch (_: Exception) {
             return SaveData()
@@ -167,6 +174,7 @@ object SaveMerge {
         out.selectedVehicle = if (out.vehicleState(newer.selectedVehicle).owned) newer.selectedVehicle else 0
         out.pendingInvoice = local.pendingInvoice
         out.mainnet = local.mainnet; out.merchantAddress = local.merchantAddress; out.sound = local.sound; out.music = local.music
+        out.sfxVolume = local.sfxVolume; out.musicVolume = local.musicVolume
         return out
     }
 }

@@ -15,6 +15,74 @@ fun runMusicTests(check: (String, Boolean) -> Unit) {
     check("music: audio file types", listOf("a.mp3", "b.OGG", "c.m4a", "d.wav", "e.flac", "f.aac").all { MusicConfig.isAudio(it) } && !MusicConfig.isAudio("README.txt"))
     check("music: titles from file names", MusicConfig.titleOf("03_Neon_Overdrive.mp3") == "Neon Overdrive" &&
         MusicConfig.titleOf("InfiniteCable - Star Road.ogg") == "Star Road" && MusicConfig.titleOf("12. Hyper Drift.m4a") == "Hyper Drift")
-    val sd = SaveData(); sd.music = false
-    check("music: on/off setting saved", !SaveCodec.fromJson(SaveCodec.toJson(sd)).music && SaveCodec.fromJson("{}").music)
+    val sd = SaveData(); sd.music = false; sd.musicVolume = 25; sd.sfxVolume = 50; sd.sound = false
+    val back = SaveCodec.fromJson(SaveCodec.toJson(sd))
+    check("music: on/off setting saved", !back.music && SaveCodec.fromJson("{}").music)
+    check("audio: volumes round-trip and default on", back.musicVolume == 25 && back.sfxVolume == 50 && !back.sound &&
+        SaveCodec.fromJson("{}").let { it.musicVolume == 100 && it.sfxVolume == 100 && it.sound })
+    check("music: shipped menu and race tracks", MusicConfig.RACE_TRACKS.size == 10 && MusicConfig.RACE_TRACKS.all { MusicConfig.isRaceTrack(it) } &&
+        MusicConfig.RACE_TRACKS.toSet().size == 10 && !MusicConfig.isRaceTrack(MusicConfig.MENU_TRACK) && MusicConfig.isMenuTrack(MusicConfig.MENU_TRACK))
+    check("music: race titles", MusicConfig.titleOf("music_race_black_spiral.ogg") == "Black Spiral" &&
+        MusicConfig.titleOf("music_menu_black_hoodie_thoughts.ogg") == "Black Hoodie Thoughts")
+    val resetQ = ShuffleQueue(songs, Random(7))
+    val first = resetQ.next()
+    resetQ.reset()
+    check("music: new race avoids repeating the last track", resetQ.next() != first)
+
+    val track = TrackGen.build(Catalog.TRACKS[0])
+    fun ship(player: Boolean) = Racer(Catalog.VEHICLES[if (player) 0 else 6], VehicleState(true, 1, 1, 1, 1), player, 1f)
+    val player = ship(true)
+    val rival = ship(false)
+    val race = Race(track, listOf(player, rival), 0)
+    race.countdown = 0f
+    race.drainSfx()
+    race.applyPickup(player, PowerUpType.SPEED)
+    check("sfx: speed boost cues boost and pickup", race.drainSfx().let { it.contains(RaceSfx.BOOST) && it.contains(RaceSfx.PICKUP) && it.size == 2 })
+    race.applyPickup(player, PowerUpType.SHIELD)
+    check("sfx: other pickups cue pickup only", race.drainSfx() == listOf(RaceSfx.PICKUP))
+    player.bullets = 0
+    check("sfx: empty gun is silent", !race.fireGun(player) && race.drainSfx().isEmpty())
+    player.bullets = 5
+    player.gunCooldown = 0f
+    check("sfx: gun fire", race.fireGun(player) && race.drainSfx() == listOf(RaceSfx.GUN))
+    rival.bullets = 5
+    rival.gunCooldown = 0f
+    check("sfx: opponent gun fire", race.fireGun(rival) && race.drainSfx() == listOf(RaceSfx.GUN))
+    player.rockets = 1
+    player.fireCooldown = 0f
+    player.secondary = WeaponType.ROCKET
+    check("sfx: rocket fire", race.fireSecondary(player) && race.drainSfx() == listOf(RaceSfx.ROCKET))
+    player.missiles.add(WeaponType.SEEKER)
+    player.secondary = WeaponType.SEEKER
+    player.fireCooldown = 0f
+    check("sfx: missile fire", race.fireSecondary(player) && race.drainSfx() == listOf(RaceSfx.MISSILE))
+    player.mines = 1
+    player.secondary = WeaponType.MINE
+    player.fireCooldown = 0f
+    check("sfx: mine deploy has no fire slot", race.fireSecondary(player) && race.drainSfx().isEmpty())
+
+    player.x = 3f; player.z = 100f; player.speed = 0f
+    rival.x = 0f; rival.z = 8000f; rival.speed = 0f; rival.alive = true; rival.energy = 100
+    race.projectiles.add(Projectile(WeaponType.BULLET, rival.z, rival.x, 0f, player, 8f))
+    race.update(1f / 60f, PlayerInput(), 0L)
+    check("sfx: bullet hit on an opponent", race.drainSfx().contains(RaceSfx.BULLET_HIT))
+
+    player.x = 0f; player.z = 2000f; player.speed = 0f; player.energy = 100; player.shield = 0
+    rival.x = 3f; rival.z = 9000f
+    race.projectiles.add(Projectile(WeaponType.ROCKET, player.z, player.x, 0f, rival, 30f))
+    race.update(1f / 60f, PlayerInput(), 0L)
+    check("sfx: rocket hit on the player", race.drainSfx().contains(RaceSfx.ROCKET_HIT))
+
+    player.shield = 0; player.energy = 100
+    race.projectiles.add(Projectile(WeaponType.SEEKER, player.z, player.x, 0f, rival, 60f, player))
+    race.update(1f / 60f, PlayerInput(), 0L)
+    check("sfx: missile hit on the player", race.drainSfx().contains(RaceSfx.MISSILE_HIT))
+
+    rival.x = 0f; rival.z = player.z + 400f; rival.alive = true; rival.energy = 100
+    race.mines.add(MineObj(rival.z, rival.x, player, 40f))
+    race.update(1f / 60f, PlayerInput(), 0L)
+    check("sfx: mine hit on an opponent", race.drainSfx().contains(RaceSfx.MINE_HIT))
+    check("sfx: slot filenames", RaceSfx.entries.map { it.fileBase } == listOf(
+        "sfx_boost", "sfx_pickup", "sfx_gun", "sfx_missile", "sfx_rocket",
+        "sfx_bullet_hit", "sfx_missile_hit", "sfx_rocket_hit", "sfx_mine_hit") && SfxConfig.ENGINE == "sfx_engine")
 }

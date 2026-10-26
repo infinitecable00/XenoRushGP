@@ -117,6 +117,8 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
     var playerDestroyed = false
     var playerFinished = false
     val events = ArrayList<String>() // toast-like messages
+    /** One-shot sound cues. The audio layer drains these every frame. */
+    val sfxCues = ArrayList<RaceSfx>()
     var shakeT = 0f
     val rng = Random(track.def.seed + 555)
 
@@ -158,6 +160,13 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
     }
 
     fun rank(r: Racer): Int = racers.count { it.totalDist > r.totalDist } + 1
+
+    fun drainSfx(): List<RaceSfx> {
+        if (sfxCues.isEmpty()) return emptyList()
+        val out = sfxCues.toList()
+        sfxCues.clear()
+        return out
+    }
 
     fun update(dt: Float, input: PlayerInput, now: Long) {
         if (countdown > 0f) {
@@ -209,9 +218,10 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 // modular distance so combat works across the start/finish line
                 if (abs(wrapDist(p.z - r.z, track.trackLength)) < hitLen && abs(p.x - r.x) < hitW) {
                     // remote racers are damaged on their own device; here the shot just disappears
-                    if (r.isRemote) { p.alive = false; break }
+                    if (r.isRemote) { p.alive = false; cueHit(p.type); break }
                     val outcome = hitRacer(r, p.damage, p)
                     if (outcome == HitOutcome.REFLECTED && r.isPlayer) emit(p.toEvent(r.uid))
+                    if (outcome == HitOutcome.DAMAGED || outcome == HitOutcome.ABSORBED) cueHit(p.type)
                     if (outcome != HitOutcome.REFLECTED) p.alive = false
                     break
                 }
@@ -227,6 +237,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 if (abs(wrapDist(m.z - r.z, track.trackLength)) < 180f && abs(m.x - r.x) < 0.3f) {
                     if (!r.isRemote) hitRacer(r, m.damage, null)
                     m.alive = false
+                    sfxCues.add(RaceSfx.MINE_HIT)
                     break
                 }
             }
@@ -352,10 +363,11 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
     }
 
     fun applyPickup(r: Racer, t: PowerUpType) {
+        sfxCues.add(RaceSfx.PICKUP)
         when (t) {
             PowerUpType.SHIELD -> { r.shield = (r.shield + Arms.SHIELD_PICKUP).coerceAtMost(Arms.MAX_SHIELD); events.add("SHIELD ${r.shield}") }
             PowerUpType.REFLECT -> { r.reflectT = 8f; events.add("REFLECT ON") }
-            PowerUpType.SPEED -> { r.boostT = 3f; r.speed += 1500f; events.add("BOOST") }
+            PowerUpType.SPEED -> { r.boostT = 3f; r.speed += 1500f; events.add("BOOST"); sfxCues.add(RaceSfx.BOOST) }
             PowerUpType.REPAIR -> { r.energy = (r.energy + Arms.REPAIR_PICKUP).coerceAtMost(Arms.MAX_HULL); events.add("+${Arms.REPAIR_PICKUP} HULL") }
             PowerUpType.AMMO -> {
                 r.bullets = (r.bullets + 30).coerceAtMost(Arms.MAX_BULLETS)
@@ -407,6 +419,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         val p = Projectile(WeaponType.BULLET, wrapZ(r.z + 250f), r.x, r.speed + 14000f, r, r.bulletDamage())
         projectiles.add(p)
         if (r.isPlayer) emit(p.toEvent(r.uid))
+        sfxCues.add(RaceSfx.GUN)
         return true
     }
 
@@ -421,6 +434,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 val p = Projectile(WeaponType.ROCKET, wrapZ(r.z + 300f), r.x, r.speed + 8000f, r, r.rocketDamage())
                 projectiles.add(p)
                 if (r.isPlayer) emit(p.toEvent(r.uid))
+                sfxCues.add(RaceSfx.ROCKET)
             }
             WeaponType.SEEKER, WeaponType.HUNTER, WeaponType.LEADER -> {
                 if (!r.missiles.remove(w)) return false
@@ -431,6 +445,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                     emit(p.toEvent(r.uid))
                     events.add("${Arms.short(w)} LOCKED: ${target?.let { if (it.isRemote) it.displayName else it.vehicle.name } ?: "none"}")
                 }
+                sfxCues.add(RaceSfx.MISSILE)
                 if (w !in r.missiles) r.secondary = r.missiles.firstOrNull() ?: WeaponType.ROCKET
             }
             WeaponType.MINE -> {
@@ -457,6 +472,15 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             }
             "mine" -> mines.add(MineObj(wrapZ(e.z), e.x, owner, e.damage))
         }
+    }
+
+    private fun cueHit(type: WeaponType) {
+        sfxCues.add(when (type) {
+            WeaponType.BULLET -> RaceSfx.BULLET_HIT
+            WeaponType.ROCKET -> RaceSfx.ROCKET_HIT
+            WeaponType.MINE -> RaceSfx.MINE_HIT
+            WeaponType.SEEKER, WeaponType.HUNTER, WeaponType.LEADER -> RaceSfx.MISSILE_HIT
+        })
     }
 
     private fun wrapDist(d: Float, len: Int): Float {

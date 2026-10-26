@@ -42,4 +42,9 @@ class MainActivity : Activity() {
         hideSystemUi()
         gameView.resumeGame()
     }
+
+    override fun onDestroy() {
+        gameView.releaseGame()
+        super.onDestroy()
+    }
 }
