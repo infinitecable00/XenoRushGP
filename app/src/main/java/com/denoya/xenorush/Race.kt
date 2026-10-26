@@ -19,6 +19,10 @@ class Racer(
     val totalDist: Float get() = lap * 1_000_000f + z
     var energy: Int = Arms.MAX_HULL      // hull health, 0 = destroyed
     var shield: Int = 0                  // shield points, absorb damage before the hull (max 100)
+    var shieldBank: Float = 0f           // fractional recharge from the pit strip
+    var pitSeek = false                  // AI is steering for the recharge strip
+    var pitLatched = false               // already rolled the dice for this approach
+    var onPit = false
     var alive = true
     var finished = false
     var finishTimeMs = -1L
@@ -304,8 +308,8 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         if (r.fireCooldown > 0f) r.fireCooldown -= dt
         if (r.gunCooldown > 0f) r.gunCooldown -= dt
 
-        // off-road
-        if (abs(r.x) > 1f) {
+        // off-road (the recharge shoulder is paved)
+        if (abs(r.x) > 1f && !PitStrip.paved(track, r.x, r.z)) {
             if (r.speed > 3600f) r.speed -= 8000f * dt
             if (r.isPlayer) shakeT = 0.25f
         }
@@ -321,6 +325,19 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 val lapMs = now - r.lastLapStart
                 if (lapMs > 5000) r.lapTimes.add(lapMs)
                 r.lastLapStart = now
+            }
+        }
+
+        val riding = PitStrip.onStrip(track, r.x, r.z)
+        if (r.isPlayer && riding && !r.onPit) events.add("RECHARGE")
+        r.onPit = riding
+        if (riding && r.speed >= PitStrip.MIN_SPEED && r.shield < Arms.MAX_SHIELD) {
+            r.shieldBank += PitStrip.REGEN_PER_SEC * dt
+            val gain = r.shieldBank.toInt()
+            if (gain > 0) {
+                r.shield = (r.shield + gain).coerceAtMost(Arms.MAX_SHIELD)
+                r.shieldBank -= gain
+                if (r.shield >= Arms.MAX_SHIELD) r.shieldBank = 0f
             }
         }
 
@@ -363,9 +380,29 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 steer += if (o.x > r.x) -0.9f else 0.9f
             }
         }
-        // drift back toward the racing line when pushed wide (avoidance, combat)
-        if (abs(r.x) > 0.7f) steer -= Math.signum(r.x) * (abs(r.x) - 0.7f) * 2.5f
+        updatePitSeek(r)
+        if (r.pitSeek) {
+            // Stay in the right lane on the way in, then move onto the shoulder.
+            val aim = if (seg.pit) PitStrip.CENTER_X else 0.78f
+            steer += clamp((aim - r.x) * 2.6f, -1f, 1f)
+        } else if (abs(r.x) > 0.7f) {
+            // drift back toward the racing line when pushed wide (avoidance, combat)
+            steer -= Math.signum(r.x) * (abs(r.x) - 0.7f) * 2.5f
+        }
         return clamp(steer, -1f, 1f)
+    }
+
+    /** Roll once per approach. A low shield sends the AI onto the strip about half the time. */
+    private fun updatePitSeek(r: Racer) {
+        val near = PitStrip.approaching(track, r.z)
+        if (near && !r.pitLatched) {
+            r.pitLatched = true
+            r.pitSeek = PitStrip.wantsPit(r.shield, rng.nextFloat())
+        }
+        if (!near) {
+            r.pitLatched = false
+            r.pitSeek = false
+        }
     }
 
     fun applyPickup(r: Racer, t: PowerUpType) {

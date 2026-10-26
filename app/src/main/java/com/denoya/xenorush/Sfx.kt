@@ -22,6 +22,8 @@ class SfxPlayer(context: Context) {
     private val delayed = ArrayList<Delayed>()
     private var engineId = 0
     private var engineStream = 0
+    private var pitId = 0
+    private var pitStream = 0
     private var released = false
 
     private class Delayed(var left: Float, val file: String, val volume: Float, val rate: Float, val slot: RaceSfx)
@@ -46,6 +48,7 @@ class SfxPlayer(context: Context) {
                 if (id != 0) ids[name] = id
             }
             engineId = ids[SfxMap.engineFile()] ?: 0
+            pitId = ids[SfxMap.PIT_LOOP] ?: 0
         }
     }
 
@@ -114,6 +117,30 @@ class SfxPlayer(context: Context) {
         }
     }
 
+    /** Quiet loop while the player is driving the recharge strip. */
+    fun updatePit(active: Boolean, volume: Float) {
+        if (released) return
+        val p = pool ?: return
+        val id = pitId
+        if (!active || volume <= 0f || id == 0 || !isReady(id)) {
+            stopPit()
+            return
+        }
+        val vol = (volume * SfxMap.PIT_GAIN).coerceIn(0f, 1f)
+        val rate = SfxMap.PIT_RATE.coerceIn(0.5f, 2f)
+        val stream = pitStream
+        if (stream == 0) {
+            pitStream = try { p.play(id, vol, vol, 1, -1, rate) } catch (_: Exception) { 0 }
+            return
+        }
+        try {
+            p.setVolume(stream, vol, vol)
+            p.setRate(stream, rate)
+        } catch (_: Exception) {
+            pitStream = 0
+        }
+    }
+
     fun onAppPause() {
         if (released) return
         try { pool?.autoPause() } catch (_: Exception) {}
@@ -130,6 +157,7 @@ class SfxPlayer(context: Context) {
         delayed.clear()
         live.clear()
         stopEngine()
+        stopPit()
         try { pool?.release() } catch (_: Exception) {}
         for (fd in heldFds) { try { fd.close() } catch (_: Exception) {} }
         heldFds.clear()
@@ -170,6 +198,14 @@ class SfxPlayer(context: Context) {
         if (stream != 0) {
             try { pool?.stop(stream) } catch (_: Exception) {}
             engineStream = 0
+        }
+    }
+
+    private fun stopPit() {
+        val stream = pitStream
+        if (stream != 0) {
+            try { pool?.stop(stream) } catch (_: Exception) {}
+            pitStream = 0
         }
     }
 

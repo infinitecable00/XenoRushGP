@@ -72,6 +72,11 @@ a racer at 0 hull is destroyed.
 Reflect sends projectiles back; a reflected guided missile re-locks onto whoever fired it.
 AI racers use guns, rockets, missiles and mines too, but hold fire for the first 8 seconds.
 
+Every course has a recharge strip on the right shoulder of the straight just past
+the start/finish line. Driving it regenerates shield. One pass at race speed does
+not fill an empty shield (`PitStrip.REGEN_PER_SEC` in `TrackGen.kt`). AI ships
+with a low shield take it about half the time.
+
 ## Pricing (USD, paid in XRP at the live rate)
 
 | Item | Price |
@@ -235,7 +240,7 @@ app/src/main/java/com/denoya/xenorush/
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 217/217 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
+A JVM test harness (copies of the pure-Kotlin files) passes 224/224 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
 show up centred, left/right the right way round like a real mirror, closer cars bigger,
 nothing ahead or out of range, wrap-around at the finish line, bends behind you, farthest-first
 draw order). v1.4 added: music shuffle (each song once per cycle, no

@@ -43,6 +43,14 @@ object SfxMap {
     /** Engine loop. b and c are in the APK; change this to swap the loop. */
     val ENGINE = SfxVariant.A
 
+    /**
+     * Loop while the player is on the recharge strip. Reuses a bundled candidate
+     * (a slowed, quiet thruster). Point this at another [allFiles] name to swap it.
+     */
+    const val PIT_LOOP = "sfx_booster_c"
+    const val PIT_GAIN = 0.30f
+    const val PIT_RATE = 0.76f
+
     /** Second ping of a bullet hit, played [SfxMix.BULLET_TINK_GAP_S] later. */
     val BULLET_TINK_SECOND = SfxVariant.B
 

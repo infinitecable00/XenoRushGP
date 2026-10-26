@@ -89,6 +89,16 @@ The three engine loops are about 4.65 s with a crossfaded seam. `SoundPool`
 changes the playback rate with speed (about 0.72 at a standstill, up to about
 1.38 at top speed while boosting).
 
+### Recharge strip
+
+Driving the rainbow lane just after the start line loops `sfx_booster_c.ogg`
+at low volume (gain `SfxMap.PIT_GAIN`, rate `SfxMap.PIT_RATE`). That file is
+already the booster **c** candidate. To swap the loop, change `SfxMap.PIT_LOOP`
+to any other name from the table above. There is no separate pit file. Only
+the local player's strip is audible, so a pack of AI on it does not stack
+loops. The loop stops when the ship leaves the lane, the race ends, or SFX
+is muted.
+
 ### Per-ship guns
 
 There are three gun recordings and 22 ships. `ShipGuns.TABLE` in `SfxLogic.kt`

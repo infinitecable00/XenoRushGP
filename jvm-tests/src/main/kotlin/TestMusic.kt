@@ -95,4 +95,5 @@ fun runMusicTests(check: (String, Boolean) -> Unit) {
     check("sfx: gun rates stay in range", ShipGuns.TABLE.all { it.second.rate in 0.5f..2f })
     check("sfx: ai is quieter far away", SfxMix.audibility(true, 8000f) == 1f && SfxMix.audibility(false, 0f) > SfxMix.audibility(false, 5000f))
     check("sfx: stack and cap", SfxMix.stackGain(2) < SfxMix.stackGain(0) && !SfxMix.allow(RaceSfx.GUN, false, 4) && SfxMix.allow(RaceSfx.GUN, true, 4))
+    check("sfx: pit loop reuses a bundled file", SfxMap.PIT_LOOP in SfxMap.allFiles() && SfxMap.PIT_GAIN < 0.5f)
 }

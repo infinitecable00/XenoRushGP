@@ -15,6 +15,8 @@ class Renderer {
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var lastW = -1
     private var lastH = -1
+    /** 0..1 cycle for the recharge strip's rainbow. */
+    private var pitPhase = 0f
 
     private fun ensureShaders(w: Int, h: Int, def: TrackDef?) {
         if (w == lastW && h == lastH && skyPaint.shader != null) return
@@ -28,6 +30,7 @@ class Renderer {
         val h = c.height
         ensureShaders(w, h, track.def)
         val player = race.player
+        pitPhase = (System.currentTimeMillis() % 1400L) / 1400f
 
         // camera
         val baseSegment = track.segAt(player.z)
@@ -183,6 +186,8 @@ class Renderer {
             }
         }
 
+        if (seg.pit) drawPitStrip(c, seg)
+
         // start/finish line
         if (seg.index < 4) {
             val cw = l1 / 8f
@@ -194,6 +199,62 @@ class Renderer {
                 sx += cw
                 i++
             }
+        }
+    }
+
+    /**
+     * Rainbow energy lane on the right shoulder. Hue marches along the strip
+     * and scrolls with [pitPhase], with a bright core and white rails.
+     */
+    private fun drawPitStrip(c: Canvas, seg: Segment) {
+        val p1 = seg.p1
+        val p2 = seg.p2
+        val l1 = p1.screenW
+        val l2 = p2.screenW
+        val inner = PitStrip.CENTER_X - PitStrip.HALF_WIDTH
+        val outer = PitStrip.CENTER_X + PitStrip.HALF_WIDTH
+        val hue = ((seg.index * 16f + pitPhase * 360f) % 360f + 360f) % 360f
+        val glow = 0.10f
+        quad(c,
+            p1.screenX + l1 * (inner - glow), p1.screenY,
+            p1.screenX + l1 * (outer + glow), p1.screenY,
+            p2.screenX + l2 * (outer + glow), p2.screenY,
+            p2.screenX + l2 * (inner - glow), p2.screenY,
+            Color.HSVToColor(90, floatArrayOf(hue, 0.95f, 1f)))
+        quad(c,
+            p1.screenX + l1 * inner, p1.screenY,
+            p1.screenX + l1 * outer, p1.screenY,
+            p2.screenX + l2 * outer, p2.screenY,
+            p2.screenX + l2 * inner, p2.screenY,
+            Color.HSVToColor(230, floatArrayOf(hue, 0.72f, 1f)))
+        val core = PitStrip.HALF_WIDTH * 0.34f
+        quad(c,
+            p1.screenX + l1 * (PitStrip.CENTER_X - core), p1.screenY,
+            p1.screenX + l1 * (PitStrip.CENTER_X + core), p1.screenY,
+            p2.screenX + l2 * (PitStrip.CENTER_X + core), p2.screenY,
+            p2.screenX + l2 * (PitStrip.CENTER_X - core), p2.screenY,
+            Color.HSVToColor(255, floatArrayOf((hue + 28f) % 360f, 0.25f, 1f)))
+        val rail = 0.045f
+        val railCol = Color.argb(230, 255, 255, 255)
+        quad(c,
+            p1.screenX + l1 * inner, p1.screenY,
+            p1.screenX + l1 * (inner + rail), p1.screenY,
+            p2.screenX + l2 * (inner + rail), p2.screenY,
+            p2.screenX + l2 * inner, p2.screenY, railCol)
+        quad(c,
+            p1.screenX + l1 * (outer - rail), p1.screenY,
+            p1.screenX + l1 * outer, p1.screenY,
+            p2.screenX + l2 * outer, p2.screenY,
+            p2.screenX + l2 * (outer - rail), p2.screenY, railCol)
+        // Bright band that steps backward along the lane so the strip looks like it flows.
+        if ((seg.index + (pitPhase * 8f).toInt()) % 4 == 0) {
+            val inset = 0.08f
+            quad(c,
+                p1.screenX + l1 * (inner + inset), p1.screenY,
+                p1.screenX + l1 * (outer - inset), p1.screenY,
+                p2.screenX + l2 * (outer - inset), p2.screenY,
+                p2.screenX + l2 * (inner + inset), p2.screenY,
+                Color.argb(150, 255, 255, 255))
         }
     }
 
@@ -387,11 +448,13 @@ class Renderer {
         }
         c.drawRect(ebX, ebY, ebX + ebW * clamp(pct, 0f, 1f), ebY + ebH, paint)
         val sbY = 14f * u
+        val onPit = player.onPit
         textPaint.textSize = 2.9f * u
-        c.drawText("SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - 0.9f * u, textPaint)
+        textPaint.color = if (onPit) Color.HSVToColor(255, floatArrayOf((pitPhase * 360f) % 360f, 0.45f, 1f)) else Color.argb(235, 200, 210, 255)
+        c.drawText(if (onPit) "RECHARGE ${player.shield}/${Arms.MAX_SHIELD}" else "SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - 0.9f * u, textPaint)
         paint.color = Color.argb(255, 30, 40, 70)
         c.drawRect(ebX, sbY, ebX + ebW, sbY + ebH * 0.75f, paint)
-        paint.color = Color.argb(255, 80, 190, 255)
+        paint.color = if (onPit) Color.HSVToColor(255, floatArrayOf((pitPhase * 360f) % 360f, 0.55f, 1f)) else Color.argb(255, 80, 190, 255)
         c.drawRect(ebX, sbY, ebX + ebW * clamp(player.shield / Arms.MAX_SHIELD.toFloat(), 0f, 1f), sbY + ebH * 0.75f, paint)
 
         // ---- lap / position (between hull panel and mirror) ----

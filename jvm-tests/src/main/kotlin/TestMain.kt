@@ -36,6 +36,15 @@ fun main() {
     val puCounts = tracks.map { t -> t.segments.sumOf { s -> s.sprites.size } }
     println("      power-ups per track: min=${puCounts.min()} max=${puCounts.max()}")
     check("deterministic generation", TrackGen.build(Catalog.TRACKS[7]).let { b -> b.segments.map { it.curve } == tracks[7].segments.map { it.curve } })
+    check("pit strip on every track", tracks.all { t ->
+        val pits = t.segments.filter { it.pit }
+        pits.size == PitStrip.LENGTH_SEGS && pits.first().index == PitStrip.START_SEG && pits.all { it.curve == 0f }
+    })
+    check("pit approach is a straight", tracks.all { t ->
+        (1..PitStrip.APPROACH_SEGS).all { d -> t.segments[(PitStrip.START_SEG - d + t.size) % t.size].curve == 0f }
+    })
+    val pitFrac = tracks.map { PitStrip.LENGTH_SEGS.toFloat() / it.size }
+    println("      pit strip: segs ${PitStrip.START_SEG}..${PitStrip.START_SEG + PitStrip.LENGTH_SEGS - 1}, ${"%.1f".format(pitFrac.min() * 100)}–${"%.1f".format(pitFrac.max() * 100)}% of a lap")
 
     // --- full race simulation ---
     val track = tracks[0]
@@ -67,9 +76,67 @@ fun main() {
     check("ranks are a permutation", race.racers.map { race.rank(it) }.sorted() == (1..5).toList())
     check("race time positive", race.raceTimeMs > 0)
     // AI should stay mostly on the road (steering compensation works)
-    val aiOff = ais.count { kotlin.math.abs(it.x) > 1.3f }
+    val aiOff = ais.count { kotlin.math.abs(it.x) > 1.3f && !PitStrip.onStrip(track, it.x, it.z) }
     println("      AI off-road count at end: $aiOff/${ais.size} (avg |x| = ${"%.2f".format(ais.map { kotlin.math.abs(it.x) }.average())})")
     check("AI stays on road", aiOff <= 2)
+
+    // recharge strip: a drive through fills some shield, not a full bar
+    run {
+        val t = tracks[0]
+        val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val r = Race(t, listOf(p), 0)
+        r.countdown = 0f
+        p.z = PitStrip.START_SEG * C.SEG_LEN + 30f
+        p.x = PitStrip.CENTER_X
+        p.speed = 10000f
+        p.shield = 0
+        val gas = PlayerInput().apply { gas = true }
+        var n = 0
+        while (n < 600 && PitStrip.onStrip(t, p.x, p.z)) {
+            r.update(1f / 60f, gas, n * 16L)
+            n++
+        }
+        println("      pit pass gained ${p.shield} shield over $n frames")
+        check("pit pass recharges shield", p.shield > 0 && r.events.contains("RECHARGE"))
+        check("one pit pass does not fill an empty shield", p.shield < Arms.MAX_SHIELD / 2)
+        val off = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val r2 = Race(t, listOf(off), 0)
+        r2.countdown = 0f
+        off.z = PitStrip.START_SEG * C.SEG_LEN + 30f
+        off.x = 0f
+        off.speed = 10000f
+        repeat(40) { r2.update(1f / 60f, gas, 0L) }
+        check("center of the road does not recharge", off.shield == 0 && !off.onPit)
+    }
+    run {
+        var took = 0
+        repeat(12) { n ->
+            val t = TrackGen.build(Catalog.TRACKS[n])
+            val ai = Racer(Catalog.VEHICLES[2], VehicleState(true, 1, 1, 1, 1), false, 1f)
+            val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+            val r = Race(t, listOf(ai, p), 0)
+            r.countdown = 0f
+            val approach = (PitStrip.START_SEG - PitStrip.APPROACH_SEGS + t.size) % t.size
+            ai.z = approach * C.SEG_LEN + 40f
+            ai.x = 0f
+            ai.speed = 9000f
+            ai.shield = 0
+            p.z = t.trackLength * 0.5f
+            var steps = 0
+            var best = 0
+            while (steps < 60 * 6) {
+                r.update(1f / 60f, PlayerInput(), steps * 16L)
+                p.speed = 0f
+                if (ai.shield > best) best = ai.shield
+                val idx = PitStrip.indexAt(ai.z, t.size)
+                if (steps > 20 && idx > PitStrip.START_SEG + PitStrip.LENGTH_SEGS + 15 && idx < t.size / 2) break
+                steps++
+            }
+            if (best > 0) took++
+        }
+        println("      low-shield AI who recharged: $took/12")
+        check("low-shield AI sometimes use the pit", took in 2..10)
+    }
 
     // --- reflection: incoming projectile bounces back and damages the shooter ---
     run {
