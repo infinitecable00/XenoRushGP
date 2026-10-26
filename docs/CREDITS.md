@@ -55,21 +55,106 @@ Engine loops were trimmed to ~4.65 s with a 0.35 s equal-power crossfade so they
 
 ## Announcer
 
-Kenney Voiceover Pack (https://kenney.nl/assets/voiceover-pack, also https://opengameart.org/content/voiceover-pack-40-lines). License CC0 1.0. Credit is not required. Male voice: Jeffrey M. Smith. Female voice: Giselle. Pack by Kenney Vleugels (www.kenney.nl).
+All 75 clips from the announcer pack are in `app/src/main/assets/sfx/announcer/`. Every clip is CC0 1.0. The game plays the lines below. The rest of the pack stays in that folder.
 
-The race calls use these lines, renamed into `app/src/main/assets/sfx/announcer/`:
-
-| Bundled file | Source file |
+| Event | Clip |
 |---|---|
-| `vo_kenney_male_one.ogg` … `five.ogg`, `go`, `ready`, `set` | `Male/1.ogg` … `Male/5.ogg`, `go.ogg`, `ready.ogg`, `set.ogg` |
-| `vo_kenney_male_final_round.ogg` | `Male/final_round.ogg` |
-| `vo_kenney_male_you_win.ogg` | `Male/you_win.ogg` |
-| `vo_kenney_male_you_lose.ogg` | `Male/you_lose.ogg` |
-| `vo_kenney_male_game_over.ogg` | `Male/game_over.ogg` |
-| `vo_kenney_male_new_highscore.ogg` | `Male/new_highscore.ogg` |
-| `vo_kenney_male_power_up.ogg` | `Male/power_up.ogg` |
-| `vo_kenney_male_hurry_up.ogg` | `Male/hurry_up.ogg` |
-| `vo_kenney_male_congratulations.ogg` | `Male/congratulations.ogg` |
-| `vo_kenney_female_*` | the same names under `Female/` |
+| 3, 2, 1, GO with Robot selected | `vo_robot_three`, `vo_robot_two`, `vo_robot_one`, `vo_robot_go` |
+| 3, 2, 1, GO with Female or Male | `vo_kenney_female_*` or `vo_kenney_male_*` |
+| Final lap, win, loss, best lap, pickup, hurry | that voice, or the male Kenney clip when Robot is selected |
+| Player boost | `vo_rockk_turbo` (`vo_rockk_nitro` only if turbo is removed) |
 
-`vo_robot_*` and `vo_rockk_*` are recognized by the loader. They are not in this build: the prepared `announcer_pack.zip` was not in the workspace. Drop those files in the same folder to enable the robot countdown and the Rockk turbo line.
+Robot has no race-call lines, so those fall back to the male Kenney voice. `vo_rockk_race_starting_countdown` is not played. Ready and set are not played.
+
+Kenney's male lines are spoken by Jeffrey M. Smith and the female lines by Giselle. The pack credits below are the per-file record.
+
+# XenoRushGP announcer voice credits
+
+All clips are CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/): free for commercial use, no attribution required.
+Processing: converted to mono 44.1 kHz OGG Vorbis, silence trimmed, peak-normalized to -1 dBFS.
+
+## Sources
+
+- **Kenney Vleugels (Kenney.nl) — Voiceover Pack #1**: https://kenney.nl/assets/voiceover-pack (CC0 1.0 (public domain); credit optional)
+- **TheStaticTurtle — Countdown voiceover robotic**: https://opengameart.org/content/countdown-voiceover-robotic (CC0 1.0 (public domain); author asks (not requires) to hear if it's used: tuglersamuel@gmail.com)
+- **Tim Rockk — game voice**: https://opengameart.org/content/game-voice (CC0 1.0 (public domain))
+
+## Files
+
+| File | Source file | Source URL | Author | License |
+|---|---|---|---|---|
+| vo_kenney_male_one.ogg | kenney/Male/1.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_two.ogg | kenney/Male/2.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_three.ogg | kenney/Male/3.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_four.ogg | kenney/Male/4.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_five.ogg | kenney/Male/5.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_six.ogg | kenney/Male/6.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_seven.ogg | kenney/Male/7.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_eight.ogg | kenney/Male/8.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_nine.ogg | kenney/Male/9.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_ten.ogg | kenney/Male/10.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_go.ogg | kenney/Male/go.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_ready.ogg | kenney/Male/ready.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_set.ogg | kenney/Male/set.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_final_round.ogg | kenney/Male/final_round.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_round.ogg | kenney/Male/round.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_you_win.ogg | kenney/Male/you_win.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_you_lose.ogg | kenney/Male/you_lose.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_game_over.ogg | kenney/Male/game_over.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_new_highscore.ogg | kenney/Male/new_highscore.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_power_up.ogg | kenney/Male/power_up.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_level_up.ogg | kenney/Male/level_up.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_hurry_up.ogg | kenney/Male/hurry_up.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_time_over.ogg | kenney/Male/time_over.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_congratulations.ogg | kenney/Male/congratulations.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_male_its_a_tie.ogg | kenney/Male/its_a_tie.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_one.ogg | kenney/Female/1.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_two.ogg | kenney/Female/2.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_three.ogg | kenney/Female/3.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_four.ogg | kenney/Female/4.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_five.ogg | kenney/Female/5.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_six.ogg | kenney/Female/6.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_seven.ogg | kenney/Female/7.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_eight.ogg | kenney/Female/8.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_nine.ogg | kenney/Female/9.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_ten.ogg | kenney/Female/10.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_go.ogg | kenney/Female/go.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_ready.ogg | kenney/Female/ready.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_set.ogg | kenney/Female/set.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_final_round.ogg | kenney/Female/final_round.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_round.ogg | kenney/Female/round.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_you_win.ogg | kenney/Female/you_win.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_you_lose.ogg | kenney/Female/you_lose.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_game_over.ogg | kenney/Female/game_over.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_new_highscore.ogg | kenney/Female/new_highscore.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_power_up.ogg | kenney/Female/power_up.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_level_up.ogg | kenney/Female/level_up.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_hurry_up.ogg | kenney/Female/hurry_up.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_time_over.ogg | kenney/Female/time_over.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_congratulations.ogg | kenney/Female/congratulations.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_kenney_female_its_a_tie.ogg | kenney/Female/its_a_tie.ogg | https://kenney.nl/assets/voiceover-pack | Kenney Vleugels (Kenney.nl) | CC0 1.0 |
+| vo_robot_one.ogg | robot/1.wav | https://opengameart.org/content/countdown-voiceover-robotic | TheStaticTurtle | CC0 1.0 |
+| vo_robot_two.ogg | robot/2.wav | https://opengameart.org/content/countdown-voiceover-robotic | TheStaticTurtle | CC0 1.0 |
+| vo_robot_three.ogg | robot/3.wav | https://opengameart.org/content/countdown-voiceover-robotic | TheStaticTurtle | CC0 1.0 |
+| vo_robot_four.ogg | robot/4.wav | https://opengameart.org/content/countdown-voiceover-robotic | TheStaticTurtle | CC0 1.0 |
+| vo_robot_five.ogg | robot/5.wav | https://opengameart.org/content/countdown-voiceover-robotic | TheStaticTurtle | CC0 1.0 |
+| vo_robot_go.ogg | robot/GO.wav | https://opengameart.org/content/countdown-voiceover-robotic | TheStaticTurtle | CC0 1.0 |
+| vo_rockk_race_starting_countdown.ogg | timrockk/G THE RACE IS STARTING IN 3 2 1 GO.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_get_ready.ogg | timrockk/G GET READY.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_game_commencing.ogg | timrockk/G GAME COMENCING.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_victory.ogg | timrockk/G VICTORY.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_game_over.ogg | timrockk/G GAME OVER.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_turbo.ogg | timrockk/G TURBO.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_nitro.ogg | timrockk/G NITRO.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_extra_power.ogg | timrockk/G EXTRA POWER.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_upgrade_available.ogg | timrockk/G UPGRADE AVAILABLE.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_new_weapon.ogg | timrockk/G NEW WEAPON.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_more_ammo.ogg | timrockk/G MORE AMMO.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_bonus_round.ogg | timrockk/G BONUS ROUND.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_turbo_round.ogg | timrockk/G TURBO ROUND.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_the_clock_is_ticking.ogg | timrockk/G THE CLOCK IS TICKING.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_new_track_available.ogg | timrockk/G NEW TRACK AVAIALABLE.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_new_car_available.ogg | timrockk/G NEW CAR AVAILABLE.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_player_1.ogg | timrockk/G PLAYER 1.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_player_2.ogg | timrockk/G PLAYER 2.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |
+| vo_rockk_thats_gotta_hurt.ogg | timrockk/GC THATS GOTTA HURT.wav | https://opengameart.org/content/game-voice | Tim Rockk | CC0 1.0 |

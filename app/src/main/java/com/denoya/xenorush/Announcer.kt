@@ -79,8 +79,14 @@ object Announcer {
                 body.startsWith("rockk_") -> { voice = "rockk"; line = body.removePrefix("rockk_") }
                 else -> continue
             }
+            val rawLine = line.lowercase().replace('-', '_').replace(' ', '_')
             val key = normalize(line)
-            map.putIfAbsent(voice to key, base)
+            val slot = voice to key
+            if (rawLine == key) {
+                map[slot] = base
+            } else {
+                map.putIfAbsent(slot, base)
+            }
         }
         return Index(map)
     }

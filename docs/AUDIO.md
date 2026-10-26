@@ -122,7 +122,7 @@ A scrape, a crash, and a destroyed ship reuse clips that are already loaded. The
 
 ### Announcer
 
-Clips live in `app/src/main/assets/sfx/announcer/` (`vo_<voice>_<line>.ogg`). This build includes Kenney's male and female lines (see [CREDITS.md](CREDITS.md)). `vo_robot_one` through `vo_robot_five`, `vo_robot_go`, `vo_rockk_turbo`, and `vo_rockk_victory` play when those files are added to the same folder. Settings **ANNOUNCER** cycles Robot, Female, Male, and Off. Robot is the default. Off, the SFX mute, and SFX volume 0 all silence the voice. Music ducks to `Announcer.DUCK` (0.55) while a line is speaking. Two lines never play at once: the lights replace whatever is speaking, other calls keep one queued line, and a boost line is dropped if anything is already speaking.
+Clips live in `app/src/main/assets/sfx/announcer/` (`vo_<voice>_<line>.ogg`). This build includes the full announcer pack: Kenney male and female, the robot countdown, and the Rockk lines (see [CREDITS.md](CREDITS.md)). Settings **ANNOUNCER** cycles Robot, Female, Male, and Off. Robot is the default. Off, the SFX mute, and SFX volume 0 all silence the voice. Music ducks to `Announcer.DUCK` (0.55) while a line is speaking. Two lines never play at once: the lights replace whatever is speaking, other calls keep one queued line, and a boost line is dropped if anything is already speaking.
 
 | Call | When | Robot | Female / Male |
 |---|---|---|---|
@@ -133,9 +133,9 @@ Clips live in `app/src/main/assets/sfx/announcer/` (`vo_<voice>_<line>.ogg`). Th
 | new_highscore | Player sets a best lap, including the first one | male Kenney clip | that voice |
 | power_up | Player collects a power-up. Silent again for 8 seconds | male Kenney clip | that voice |
 | hurry_up | Player is last when the final lap starts. Queued behind final_round | male Kenney clip | that voice |
-| turbo | Player boost (button or speed pad), at most every 18 seconds, and only if nothing is speaking | `vo_rockk_turbo` (or `nitro`) | same Rockk clip |
+| turbo | Player boost (button or speed pad), at most every 18 seconds, and only if nothing is speaking | `vo_rockk_turbo` | same Rockk clip |
 
-Rockk's countdown clip is not used. Ready and set are not played: the lights start on 3, and the words stay locked to that clock. AI ships are not announced.
+`vo_rockk_nitro` is in the folder. The loader uses it only when `vo_rockk_turbo` is absent. Rockk's race-starting countdown is not used. Ready and set are not played: the lights start on 3, and the words stay locked to that clock. AI ships are not announced. The other Kenney numbers and the unused Rockk lines stay in the folder so a later call can pick them up.
 
 ### Per-ship guns
 

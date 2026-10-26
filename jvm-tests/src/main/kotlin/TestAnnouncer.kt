@@ -36,6 +36,11 @@ fun runAnnouncerTests(check: (String, Boolean) -> Unit) {
     check("boost uses the rockk turbo clip",
         Announcer.resolve(index, VoiceChoice.ROBOT, Call.BOOST) == "vo_rockk_turbo" &&
             Announcer.resolve(index, VoiceChoice.OFF, Call.BOOST) == null)
+    val nitroFirst = Announcer.index(listOf("vo_rockk_nitro.ogg", "vo_rockk_turbo.ogg"))
+    check("turbo wins when nitro is also installed",
+        Announcer.resolve(nitroFirst, VoiceChoice.MALE, Call.BOOST) == "vo_rockk_turbo")
+    check("nitro stands in when turbo is missing",
+        Announcer.resolve(Announcer.index(listOf("vo_rockk_nitro.ogg")), VoiceChoice.FEMALE, Call.BOOST) == "vo_rockk_nitro")
     check("voice setting defaults to robot and cycles",
         Announcer.voiceOf(null) == VoiceChoice.ROBOT && Announcer.voiceOf("nope") == VoiceChoice.ROBOT &&
             Announcer.next(VoiceChoice.ROBOT) == VoiceChoice.FEMALE && Announcer.next(VoiceChoice.OFF) == VoiceChoice.ROBOT &&
