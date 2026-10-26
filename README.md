@@ -296,7 +296,7 @@ Race music starts when the countdown reaches 0.
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 301/301 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
+A JVM test harness (copies of the pure-Kotlin files) passes 303/303 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
 show up centred, left/right the right way round like a real mirror, closer cars bigger,
 nothing ahead or out of range, wrap-around at the finish line, bends behind you, farthest-first
 draw order). v1.4 added: music shuffle (each song once per cycle, no
