@@ -27,7 +27,7 @@ object Changelog {
             "Music and sound-effect volume in Settings",
             "Engine, boost, weapons, hits and pickups play sound effects",
             "Each ship has its own gun sound",
-            "Recharge strip on the start straight fills the shield"
+            "Recharge strip fills the shield and slows the ship"
         ),
         "v1.5.0" to listOf(
             "The game now runs in landscape (turn the phone either way)",

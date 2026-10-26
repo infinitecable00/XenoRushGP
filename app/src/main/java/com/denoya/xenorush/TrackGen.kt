@@ -121,9 +121,9 @@ object TrackGen {
  * Every course begins with the same 80-segment straight, so the strip sits
  * on the same segments of every track. Recharge follows distance along the
  * lane, not time, and it never touches hull. [FULL_PASS_SHIELD] is the knob:
- * driving the whole strip (9,200 units) grants that many shield points, at
- * racing speed or any other speed. 100 matches [Arms.MAX_SHIELD], so an
- * empty shield is full at the end of the lane.
+ * driving the whole strip (9,200 units) grants that many shield points.
+ * [SPEED_CAP] holds every ship on the lane to that fraction of its top speed,
+ * so the refill still finishes at the reduced pace and pitting costs time.
  */
 object PitStrip {
     const val START_SEG = 10
@@ -133,11 +133,18 @@ object PitStrip {
     const val HALF_WIDTH = 0.36f
     /** Shield points for covering the entire strip. Does not heal hull. */
     const val FULL_PASS_SHIELD = 100
+    /**
+     * Speed limit on the strip, as a fraction of [Racer.maxSpeed].
+     * Boost does not raise it. 0.75 is 75% of top speed.
+     */
+    const val SPEED_CAP = 0.75f
     const val AI_SEEK_BELOW = 40
     const val AI_SEEK_CHANCE = 0.5f
     /** Segments before the strip where a seeking AI slides to the right lane. */
     const val APPROACH_SEGS = 50
     const val SHOULDER = 0.22f
+
+    fun speedLimit(topSpeed: Float): Float = topSpeed * SPEED_CAP
 
     fun lengthUnits(): Float = LENGTH_SEGS * C.SEG_LEN
     fun zStart(): Float = START_SEG * C.SEG_LEN

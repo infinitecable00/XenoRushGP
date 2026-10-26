@@ -96,14 +96,31 @@ fun main() {
         p.shield = 0
         p.energy = 40
         val gas = PlayerInput().apply { gas = true }
+        val cap = PitStrip.speedLimit(p.maxSpeed())
         var n = 0
-        while (n < 600 && p.z < PitStrip.zEnd() + 400f) {
+        var framesOnStrip = 0
+        var overCap = false
+        while (n < 900 && p.z < PitStrip.zEnd() + 400f) {
+            val wasOn = PitStrip.onStrip(t, p.x, p.z)
             r.update(1f / 60f, gas, n * 16L)
+            if (wasOn) {
+                framesOnStrip++
+                if (p.speed > cap + 1f) overCap = true
+            }
             n++
         }
-        println("      pit pass shield=${p.shield} hull=${p.energy} frames=$n")
+        println("      pit pass shield=${p.shield} hull=${p.energy} frames=$n cap=$cap")
         check("full pit pass fills an empty shield", p.shield == Arms.MAX_SHIELD && r.events.contains("RECHARGE") && r.events.contains("SHIELD FULL") && p.shieldJustFull)
         check("pit pass does not heal hull", p.energy == 40)
+        check("pit holds racing speed to the cap", PitStrip.SPEED_CAP in 0.70f..0.80f && framesOnStrip > 10 && !overCap)
+        val ai = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f)
+        val ra = Race(t, listOf(ai, Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)), 0)
+        ra.countdown = 0f
+        ai.z = PitStrip.zStart() + 200f
+        ai.x = PitStrip.CENTER_X
+        ai.speed = ai.maxSpeed()
+        ra.update(1f / 60f, PlayerInput(), 0L)
+        check("pit cap applies to AI", PitStrip.onStrip(t, ai.x, ai.z) && ai.speed <= PitStrip.speedLimit(ai.maxSpeed()) + 1f)
         val half = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
         val rh = Race(t, listOf(half), 0)
         rh.countdown = 0f
