@@ -6,7 +6,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 
-/** Short pulses through the platform vibrator. */}
+/** Short pulses through the platform vibrator. */
 class Haptics(context: Context) {
     private val vibrator: Vibrator = if (Build.VERSION.SDK_INT >= 31) {
         val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
