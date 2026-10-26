@@ -318,9 +318,10 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         }
         r.x = clamp(r.x, -C.MAX_LATERAL, C.MAX_LATERAL)
         r.speed = clamp(r.speed, 0f, maxSpd * 1.2f)
-        // The recharge lane is a time tradeoff. Cap applies to the player and AI.
+        // Light slowdown on the recharge lane. Player and AI. First half is
+        // SPEED_CAP_FIRST, second half is SPEED_CAP_SECOND, blended in between.
         if (PitStrip.onStrip(track, r.x, r.z)) {
-            val pitCap = PitStrip.speedLimit(r.maxSpeed())
+            val pitCap = PitStrip.speedLimit(r.maxSpeed(), PitStrip.progress(r.z))
             if (r.speed > pitCap) r.speed = pitCap
         }
 

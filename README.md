@@ -75,8 +75,9 @@ AI racers use guns, rockets, missiles and mines too, but hold fire for the first
 Every course has a recharge strip on the right shoulder of the straight just past
 the start/finish line. Driving the whole strip refills an empty shield
 (`PitStrip.FULL_PASS_SHIELD` in `TrackGen.kt`). It restores shield only, never hull.
-Ships on the lane, player and AI, are held to 75% of top speed (`PitStrip.SPEED_CAP`),
-so the stop costs time. AI ships with a low shield take it about half the time.
+Ships on the lane, player and AI, are held to 90% of top speed on the first half
+and 85% on the second (`PitStrip.SPEED_CAP_FIRST` and `SPEED_CAP_SECOND`), eased
+across the middle. AI ships with a low shield take it about half the time.
 
 ## Pricing (USD, paid in XRP at the live rate)
 

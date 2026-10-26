@@ -96,31 +96,48 @@ fun main() {
         p.shield = 0
         p.energy = 40
         val gas = PlayerInput().apply { gas = true }
-        val cap = PitStrip.speedLimit(p.maxSpeed())
         var n = 0
         var framesOnStrip = 0
+        var sawFirst = false
+        var sawSecond = false
         var overCap = false
         while (n < 900 && p.z < PitStrip.zEnd() + 400f) {
             val wasOn = PitStrip.onStrip(t, p.x, p.z)
+            val prog = PitStrip.progress(p.z)
             r.update(1f / 60f, gas, n * 16L)
             if (wasOn) {
                 framesOnStrip++
-                if (p.speed > cap + 1f) overCap = true
+                if (prog < PitStrip.SPEED_EASE_FROM) sawFirst = true
+                if (prog > PitStrip.SPEED_EASE_TO) sawSecond = true
+                if (p.speed > PitStrip.speedLimit(p.maxSpeed(), prog) + 1f) overCap = true
             }
             n++
         }
-        println("      pit pass shield=${p.shield} hull=${p.energy} frames=$n cap=$cap")
+        println("      pit pass shield=${p.shield} hull=${p.energy} frames=$n")
         check("full pit pass fills an empty shield", p.shield == Arms.MAX_SHIELD && r.events.contains("RECHARGE") && r.events.contains("SHIELD FULL") && p.shieldJustFull)
         check("pit pass does not heal hull", p.energy == 40)
-        check("pit holds racing speed to the cap", PitStrip.SPEED_CAP in 0.70f..0.80f && framesOnStrip > 10 && !overCap)
-        val ai = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f)
-        val ra = Race(t, listOf(ai, Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)), 0)
-        ra.countdown = 0f
-        ai.z = PitStrip.zStart() + 200f
-        ai.x = PitStrip.CENTER_X
-        ai.speed = ai.maxSpeed()
-        ra.update(1f / 60f, PlayerInput(), 0L)
-        check("pit cap applies to AI", PitStrip.onStrip(t, ai.x, ai.z) && ai.speed <= PitStrip.speedLimit(ai.maxSpeed()) + 1f)
+        val caps = listOf(0f, 0.2f, 0.5f, 0.8f, 1f).map { PitStrip.speedCapFraction(it) }
+        check("pit eases from 90% to 85%",
+            PitStrip.SPEED_CAP_FIRST == 0.90f && PitStrip.SPEED_CAP_SECOND == 0.85f &&
+                kotlin.math.abs(caps.first() - PitStrip.SPEED_CAP_FIRST) < 0.001f &&
+                kotlin.math.abs(caps.last() - PitStrip.SPEED_CAP_SECOND) < 0.001f &&
+                caps.zipWithNext().all { (a, b) -> b <= a + 0.0001f } &&
+                framesOnStrip > 10 && sawFirst && sawSecond && !overCap)
+        fun aiAt(z: Float): Racer {
+            val ai = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f)
+            val ra = Race(t, listOf(ai, Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)), 0)
+            ra.countdown = 0f
+            ai.z = z
+            ai.x = PitStrip.CENTER_X
+            ai.speed = ai.maxSpeed()
+            ra.update(1f / 60f, PlayerInput(), 0L)
+            return ai
+        }
+        val early = aiAt(PitStrip.zStart() + 200f)
+        val late = aiAt(PitStrip.zStart() + PitStrip.lengthUnits() * 0.8f)
+        check("pit cap applies to AI on both halves",
+            early.speed <= PitStrip.speedLimit(early.maxSpeed(), PitStrip.progress(PitStrip.zStart() + 200f)) + 1f &&
+                late.speed <= early.maxSpeed() * PitStrip.SPEED_CAP_SECOND + 1f)
         val half = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
         val rh = Race(t, listOf(half), 0)
         rh.countdown = 0f

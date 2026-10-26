@@ -122,8 +122,9 @@ object TrackGen {
  * on the same segments of every track. Recharge follows distance along the
  * lane, not time, and it never touches hull. [FULL_PASS_SHIELD] is the knob:
  * driving the whole strip (9,200 units) grants that many shield points.
- * [SPEED_CAP] holds every ship on the lane to that fraction of its top speed,
- * so the refill still finishes at the reduced pace and pitting costs time.
+ * [SPEED_CAP_FIRST] and [SPEED_CAP_SECOND] slow the lane: 90% of top speed
+ * on the first half, 85% on the second, eased across the middle. The refill
+ * still finishes at that pace, and pitting still costs a little time.
  */
 object PitStrip {
     const val START_SEG = 10
@@ -134,19 +135,34 @@ object PitStrip {
     /** Shield points for covering the entire strip. Does not heal hull. */
     const val FULL_PASS_SHIELD = 100
     /**
-     * Speed limit on the strip, as a fraction of [Racer.maxSpeed].
-     * Boost does not raise it. 0.75 is 75% of top speed.
+     * Speed caps as a fraction of top speed. Boost does not raise them.
+     * First half of the strip uses [SPEED_CAP_FIRST] (10% off). Second half
+     * uses [SPEED_CAP_SECOND] (15% off). The blend between them is
+     * [SPEED_EASE_FROM] to [SPEED_EASE_TO], as progress along the strip.
      */
-    const val SPEED_CAP = 0.75f
+    const val SPEED_CAP_FIRST = 0.90f
+    const val SPEED_CAP_SECOND = 0.85f
+    const val SPEED_EASE_FROM = 0.35f
+    const val SPEED_EASE_TO = 0.65f
     const val AI_SEEK_BELOW = 40
     const val AI_SEEK_CHANCE = 0.5f
     /** Segments before the strip where a seeking AI slides to the right lane. */
     const val APPROACH_SEGS = 50
     const val SHOULDER = 0.22f
 
-    fun speedLimit(topSpeed: Float): Float = topSpeed * SPEED_CAP
-
     fun lengthUnits(): Float = LENGTH_SEGS * C.SEG_LEN
+
+    /** 0 at the start of the strip, 1 at the end. */
+    fun progress(z: Float): Float = ((z - zStart()) / lengthUnits()).coerceIn(0f, 1f)
+
+    /** Cap fraction at [progress] along the strip. Smooth from the first half to the second. */
+    fun speedCapFraction(progress: Float): Float {
+        val span = (SPEED_EASE_TO - SPEED_EASE_FROM).coerceAtLeast(0.0001f)
+        val u = ((progress.coerceIn(0f, 1f) - SPEED_EASE_FROM) / span).coerceIn(0f, 1f)
+        return easeInOut(SPEED_CAP_FIRST, SPEED_CAP_SECOND, u)
+    }
+
+    fun speedLimit(topSpeed: Float, progress: Float): Float = topSpeed * speedCapFraction(progress)
     fun zStart(): Float = START_SEG * C.SEG_LEN
     fun zEnd(): Float = (START_SEG + LENGTH_SEGS) * C.SEG_LEN
 
