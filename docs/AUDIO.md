@@ -64,43 +64,75 @@ Settings (device-local, not part of cloud save):
 
 ## Sound effects
 
-`SoundPool` loads each slot at startup. It tries `ogg`, then `wav`, then `mp3`,
-and keeps the first one it can open. The shipped files are short generated
-placeholders (a tone or a noise burst) so the hooks can be heard before the
-final recordings exist. To replace one, add the `.ogg` (or `.mp3`) with the
-same base name. The `.ogg` wins over the `.wav`, so the placeholder can stay
-until you delete it.
+`SoundPool` loads every candidate at startup (`SfxMap.allFiles`, 30 OGG files,
+about 600 KB). Variant **a** is the shipped choice for each one-shot slot and
+for the engine. Variants **b** and **c** stay in the APK. Swap one by editing
+a single entry in `SfxMap.DEFAULT` (or `SfxMap.ENGINE` for the loop) in
+`SfxLogic.kt`. A missing file stays silent.
 
-| Slot | File to replace | Triggers |
+Sources and licenses are in [CREDITS.md](CREDITS.md). Every file is CC0.
+
+| Slot | Default file | Also bundled | Triggers |
+|---|---|---|---|
+| Boost | `sfx_booster_a.ogg` | `_b`, `_c` | Player drives over a **Speed** pad. There is no separate boost button. Also plays the pickup sound. |
+| Engine loop | `sfx_ship_accel_loop_a.ogg` | `_b`, `_c` | After GO, while the player's ship is alive. Loops (`loop = -1`). Pitch and volume rise with speed, and rise again while a boost is active. Only the player's engine loops. Stops on pause, finish, destroy, or quit. |
+| Pickup | `sfx_powerup_pickup_a.ogg` | `_b`, `_c` | Any power-up the player collects (shield, reflect, speed, repair, ammo, missile, mine). |
+| Gun fire | per ship, below | `sfx_gun_fire_{a,b,c}.ogg` | `Race.fireGun` — the player's held GUN button and AI gun bursts. |
+| Missile fire | `sfx_missile_fire_a.ogg` | `_b`, `_c` | Seeker, Hunter, or Leader missile, player or AI. |
+| Rocket fire | `sfx_rocket_fire_a.ogg` | `_b`, `_c` | Unguided rocket, player or AI. |
+| Bullet hit | `sfx_gun_bullet_hit_a.ogg`, then `_b` | `_c` | A bullet connects with any ship, player or AI. `_b` plays about 60 ms later (rate 1.04, a bit quieter) so a single hit is a double tink. Shield absorbs count as hits. |
+| Missile hit | `sfx_missile_hit_a.ogg` | `_b`, `_c` | A guided missile connects, plus the explosion. Player or AI. |
+| Rocket hit | `sfx_rocket_hit_a.ogg` | `_b`, `_c` | A rocket connects, plus the explosion. Player or AI. |
+| Mine hit | `sfx_prox_mine_hit_a.ogg` | `_b`, `_c` | A dropped mine detonates when a ship (player or AI) drives into it. |
+
+The three engine loops are about 4.65 s with a crossfaded seam. `SoundPool`
+changes the playback rate with speed (about 0.72 at a standstill, up to about
+1.38 at top speed while boosting).
+
+### Per-ship guns
+
+There are three gun recordings and 22 ships. `ShipGuns.TABLE` in `SfxLogic.kt`
+is the only place to edit this. Each row is the ship name (same string as
+`Catalog`) plus a file variant and a playback rate. Rate 1.00 is the
+recording; higher is sharper. `sfx_gun_fire_c` is the short sample (about
+0.15 s), so it covers the ships that should stay crisp at the gun's 0.12 s
+repeat. A name that is not in the table falls back to variant **a** at rate 1.00.
+
+| Ship | File | Rate |
 |---|---|---|
-| Boost | `sfx_boost.ogg` | Player drives over a **Speed** pad. There is no separate boost button. Also plays the pickup sound. |
-| Engine loop | `sfx_engine.ogg` | After GO, while the player's ship is alive. Loops. Pitch and volume rise with speed, and rise again while a boost is active. Stops on pause, finish, destroy, or quit. |
-| Pickup | `sfx_pickup.ogg` | Any power-up the player collects (shield, reflect, speed, repair, ammo, missile, mine). |
-| Gun fire | `sfx_gun.ogg` | `Race.fireGun` — the player's held GUN button and AI gun bursts. |
-| Missile fire | `sfx_missile.ogg` | Seeker, Hunter, or Leader missile, player or AI. |
-| Rocket fire | `sfx_rocket.ogg` | Unguided rocket, player or AI. |
-| Bullet hit | `sfx_bullet_hit.ogg` | A bullet connects with any ship, player or AI. A light two-ping placeholder stands in for a metallic tink. Shield absorbs count as hits. |
-| Missile hit | `sfx_missile_hit.ogg` | A guided missile connects, plus the explosion. Player or AI. |
-| Rocket hit | `sfx_rocket_hit.ogg` | A rocket connects, plus the explosion. Player or AI. |
-| Mine hit | `sfx_mine_hit.ogg` | A dropped mine detonates when a ship (player or AI) drives into it. |
+| Sprint MK-I | `sfx_gun_fire_c` | 1.00 |
+| Vega Runner | `sfx_gun_fire_a` | 0.90 |
+| Kestrel D2 | `sfx_gun_fire_b` | 1.08 |
+| Pulsar GT | `sfx_gun_fire_c` | 0.86 |
+| Ion Drifter | `sfx_gun_fire_a` | 1.12 |
+| Falcon V | `sfx_gun_fire_b` | 0.84 |
+| Nova Sting | `sfx_gun_fire_c` | 1.14 |
+| Crimson Dart | `sfx_gun_fire_a` | 0.78 |
+| Zephyr R9 | `sfx_gun_fire_b` | 1.22 |
+| Hellion X | `sfx_gun_fire_c` | 1.28 |
+| Tempest MK-III | `sfx_gun_fire_a` | 1.26 |
+| Quasar Blade | `sfx_gun_fire_b` | 0.96 |
+| Specter Wraith | `sfx_gun_fire_c` | 0.74 |
+| Vortex Prime | `sfx_gun_fire_a` | 1.40 |
+| Ember Fang | `sfx_gun_fire_b` | 1.36 |
+| Onyx Phantom | `sfx_gun_fire_c` | 1.20 |
+| Solaris Apex | `sfx_gun_fire_a` | 1.00 |
+| Hydra Dominator | `sfx_gun_fire_b` | 1.14 |
+| Nemesis Zero | `sfx_gun_fire_c` | 0.94 |
+| Aurora Titan | `sfx_gun_fire_a` | 0.84 |
+| Eclipse Omega | `sfx_gun_fire_b` | 0.78 |
+| Xenon Deity | `sfx_gun_fire_c` | 1.36 |
 
-Placeholder paths today:
+### Mixing
 
-```
-app/src/main/assets/sfx/sfx_boost.wav
-app/src/main/assets/sfx/sfx_engine.wav
-app/src/main/assets/sfx/sfx_pickup.wav
-app/src/main/assets/sfx/sfx_gun.wav
-app/src/main/assets/sfx/sfx_missile.wav
-app/src/main/assets/sfx/sfx_rocket.wav
-app/src/main/assets/sfx/sfx_bullet_hit.wav
-app/src/main/assets/sfx/sfx_missile_hit.wav
-app/src/main/assets/sfx/sfx_rocket_hit.wav
-app/src/main/assets/sfx/sfx_mine_hit.wav
-```
+`SfxMix` keeps a volley from clipping:
 
-The engine placeholder is a one-second loop. A real recording should also loop
-cleanly: `SoundPool` plays it with loop = -1 and changes rate with speed.
+- Concurrent copies are capped: guns and bullet hits 4, missile/rocket fire and the three explosions 2, boost and pickup 2. The player can still play when the cap is full (up to two extra). Extra AI copies are dropped. Cues are sorted player-first, then nearest, so a far ship loses the slot.
+- Each extra copy of the same slot plays quieter (full, then 0.70, then 0.48).
+- Slot gains sit under 1.0 (guns 0.48, bullet hits 0.55, missile and rocket fire 0.62, explosions 0.58, boost and pickup 0.80).
+- AI volume starts at 0.82 and falls with distance along the track. The player is always full.
+- Explosions duck the engine to 0.58 and outrank other sounds if the 16-stream pool is full.
+- The second bullet tink bypasses the concurrency cap so it is not dropped, and it still occupies the mix window.
 
 Cues are emitted inside `Race` (`sfxCues`) for both the local player and AI
 ships, then played from `Game.drainSfx`. In multiplayer, a shot that connects

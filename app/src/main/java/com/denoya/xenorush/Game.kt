@@ -25,7 +25,8 @@ object Changelog {
             "Menu music loops on the home screen",
             "Race music starts after the lights and shuffles ten tracks",
             "Music and sound-effect volume in Settings",
-            "Engine, boost, weapons, hits and pickups play sound effects"
+            "Engine, boost, weapons, hits and pickups play sound effects",
+            "Each ship has its own gun sound"
         ),
         "v1.5.0" to listOf(
             "The game now runs in landscape (turn the phone either way)",
@@ -271,6 +272,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         val top = r?.player?.maxSpeed()?.coerceAtLeast(1f) ?: 1f
         val ratio = if (r == null) 0f else r.player.speed / top
         sfx.updateEngine(driving, ratio, (r?.player?.boostT ?: 0f) > 0f, sfxVol)
+        sfx.tick(dt, sfxVol > 0f)
     }
 
     private fun drainSfx(r: Race) {
@@ -278,7 +280,9 @@ class Game(private val context: Context, private val activity: Activity?) {
         if (cues.isEmpty() || screen != Screen.RACE || !save.sound) return
         val vol = save.sfxVolume.coerceIn(0, 100) / 100f
         if (vol <= 0f) return
-        for (c in cues) sfx.play(c, vol)
+        // Player and nearer ships first, so the mix cap drops the far AI copies.
+        val ordered = cues.sortedWith(compareBy({ !it.fromPlayer }, { it.distance }))
+        for (c in ordered) sfx.play(c, vol)
     }
 
     /** App sent to background: the game loop stops, so pause music and effects directly. */

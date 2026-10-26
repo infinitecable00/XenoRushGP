@@ -36,26 +36,29 @@ fun runMusicTests(check: (String, Boolean) -> Unit) {
     val race = Race(track, listOf(player, rival), 0)
     race.countdown = 0f
     race.drainSfx()
+    fun slots(cues: List<SfxCue>) = cues.map { it.slot }
     race.applyPickup(player, PowerUpType.SPEED)
-    check("sfx: speed boost cues boost and pickup", race.drainSfx().let { it.contains(RaceSfx.BOOST) && it.contains(RaceSfx.PICKUP) && it.size == 2 })
+    check("sfx: speed boost cues boost and pickup", slots(race.drainSfx()).let { it.contains(RaceSfx.BOOST) && it.contains(RaceSfx.PICKUP) && it.size == 2 })
     race.applyPickup(player, PowerUpType.SHIELD)
-    check("sfx: other pickups cue pickup only", race.drainSfx() == listOf(RaceSfx.PICKUP))
+    check("sfx: other pickups cue pickup only", slots(race.drainSfx()) == listOf(RaceSfx.PICKUP))
     player.bullets = 0
     check("sfx: empty gun is silent", !race.fireGun(player) && race.drainSfx().isEmpty())
     player.bullets = 5
     player.gunCooldown = 0f
-    check("sfx: gun fire", race.fireGun(player) && race.drainSfx() == listOf(RaceSfx.GUN))
+    check("sfx: gun fire", race.fireGun(player) && race.drainSfx().let { it.size == 1 && it[0].slot == RaceSfx.GUN && it[0].fromPlayer && it[0].vehicleId == 0 })
+    player.z = 0f
+    rival.z = 3000f
     rival.bullets = 5
     rival.gunCooldown = 0f
-    check("sfx: opponent gun fire", race.fireGun(rival) && race.drainSfx() == listOf(RaceSfx.GUN))
+    check("sfx: opponent gun fire", race.fireGun(rival) && race.drainSfx().let { it.size == 1 && it[0].slot == RaceSfx.GUN && !it[0].fromPlayer && it[0].vehicleId == 6 && it[0].distance > 2000f })
     player.rockets = 1
     player.fireCooldown = 0f
     player.secondary = WeaponType.ROCKET
-    check("sfx: rocket fire", race.fireSecondary(player) && race.drainSfx() == listOf(RaceSfx.ROCKET))
+    check("sfx: rocket fire", race.fireSecondary(player) && slots(race.drainSfx()) == listOf(RaceSfx.ROCKET))
     player.missiles.add(WeaponType.SEEKER)
     player.secondary = WeaponType.SEEKER
     player.fireCooldown = 0f
-    check("sfx: missile fire", race.fireSecondary(player) && race.drainSfx() == listOf(RaceSfx.MISSILE))
+    check("sfx: missile fire", race.fireSecondary(player) && slots(race.drainSfx()) == listOf(RaceSfx.MISSILE))
     player.mines = 1
     player.secondary = WeaponType.MINE
     player.fireCooldown = 0f
@@ -65,24 +68,31 @@ fun runMusicTests(check: (String, Boolean) -> Unit) {
     rival.x = 0f; rival.z = 8000f; rival.speed = 0f; rival.alive = true; rival.energy = 100
     race.projectiles.add(Projectile(WeaponType.BULLET, rival.z, rival.x, 0f, player, 8f))
     race.update(1f / 60f, PlayerInput(), 0L)
-    check("sfx: bullet hit on an opponent", race.drainSfx().contains(RaceSfx.BULLET_HIT))
+    check("sfx: bullet hit on an opponent", slots(race.drainSfx()).contains(RaceSfx.BULLET_HIT))
 
     player.x = 0f; player.z = 2000f; player.speed = 0f; player.energy = 100; player.shield = 0
     rival.x = 3f; rival.z = 9000f
     race.projectiles.add(Projectile(WeaponType.ROCKET, player.z, player.x, 0f, rival, 30f))
     race.update(1f / 60f, PlayerInput(), 0L)
-    check("sfx: rocket hit on the player", race.drainSfx().contains(RaceSfx.ROCKET_HIT))
+    check("sfx: rocket hit on the player", race.drainSfx().any { it.slot == RaceSfx.ROCKET_HIT && it.fromPlayer })
 
     player.shield = 0; player.energy = 100
     race.projectiles.add(Projectile(WeaponType.SEEKER, player.z, player.x, 0f, rival, 60f, player))
     race.update(1f / 60f, PlayerInput(), 0L)
-    check("sfx: missile hit on the player", race.drainSfx().contains(RaceSfx.MISSILE_HIT))
+    check("sfx: missile hit on the player", slots(race.drainSfx()).contains(RaceSfx.MISSILE_HIT))
 
     rival.x = 0f; rival.z = player.z + 400f; rival.alive = true; rival.energy = 100
     race.mines.add(MineObj(rival.z, rival.x, player, 40f))
     race.update(1f / 60f, PlayerInput(), 0L)
-    check("sfx: mine hit on an opponent", race.drainSfx().contains(RaceSfx.MINE_HIT))
-    check("sfx: slot filenames", RaceSfx.entries.map { it.fileBase } == listOf(
-        "sfx_boost", "sfx_pickup", "sfx_gun", "sfx_missile", "sfx_rocket",
-        "sfx_bullet_hit", "sfx_missile_hit", "sfx_rocket_hit", "sfx_mine_hit") && SfxConfig.ENGINE == "sfx_engine")
+    check("sfx: mine hit on an opponent", slots(race.drainSfx()).contains(RaceSfx.MINE_HIT))
+    check("sfx: variant a is the default", RaceSfx.entries.all { SfxMap.variant(it) == SfxVariant.A } && SfxMap.ENGINE == SfxVariant.A)
+    check("sfx: default files", SfxMap.file(RaceSfx.BOOST, SfxVariant.A) == "sfx_booster_a" &&
+        SfxMap.file(RaceSfx.MINE_HIT, SfxVariant.A) == "sfx_prox_mine_hit_a" && SfxMap.engineFile() == "sfx_ship_accel_loop_a")
+    check("sfx: all 30 candidates", SfxMap.allFiles().size == 30 && SfxMap.allFiles().toSet().size == 30)
+    check("sfx: bullet tink is a second variant", SfxMap.BULLET_TINK_SECOND == SfxVariant.B && SfxMix.BULLET_TINK_GAP_S == 0.06f)
+    check("sfx: one gun voice per ship", ShipGuns.TABLE.map { it.first } == Catalog.VEHICLES.map { it.name })
+    check("sfx: gun voices are distinct", ShipGuns.TABLE.map { it.second.variant to it.second.rate }.toSet().size == ShipGuns.TABLE.size)
+    check("sfx: gun rates stay in range", ShipGuns.TABLE.all { it.second.rate in 0.5f..2f })
+    check("sfx: ai is quieter far away", SfxMix.audibility(true, 8000f) == 1f && SfxMix.audibility(false, 0f) > SfxMix.audibility(false, 5000f))
+    check("sfx: stack and cap", SfxMix.stackGain(2) < SfxMix.stackGain(0) && !SfxMix.allow(RaceSfx.GUN, false, 4) && SfxMix.allow(RaceSfx.GUN, true, 4))
 }

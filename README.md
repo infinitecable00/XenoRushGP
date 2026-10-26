@@ -44,12 +44,13 @@ another when that one ends (never the same song twice in a row). It fades out on
 results screen or when the player quits, and the menu loop comes back. Music pauses when
 the app is backgrounded.
 
-Sound effects (engine, boost, weapons, hits, pickups) go through SoundPool. The shipped
-files in `app/src/main/assets/sfx/` are short placeholders; replace them with real
-recordings of the same name. A missing file is silent.
+Sound effects (engine, boost, weapons, hits, pickups) are CC0 recordings played
+through SoundPool. Each ship has its own gun. Variant "a" is the default for the
+other slots; the b and c takes are in the APK so a slot can be swapped in one line.
+A missing file is silent. Credits are in [docs/CREDITS.md](docs/CREDITS.md).
 
-Settings has music and SFX on/off plus a volume step for each. Full file names, slot
-list, and trigger points are in [docs/AUDIO.md](docs/AUDIO.md).
+Settings has music and SFX on/off plus a volume step for each. The slot map and the
+per-ship gun table are in [docs/AUDIO.md](docs/AUDIO.md).
 
 Spotify can't be used for this: its developer policy prohibits using the Spotify Platform
 in games (https://developer.spotify.com/policy). Use your own master files instead.
@@ -234,7 +235,7 @@ app/src/main/java/com/denoya/xenorush/
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 209/209 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
+A JVM test harness (copies of the pure-Kotlin files) passes 217/217 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
 show up centred, left/right the right way round like a real mirror, closer cars bigger,
 nothing ahead or out of range, wrap-around at the finish line, bends behind you, farthest-first
 draw order). v1.4 added: music shuffle (each song once per cycle, no
