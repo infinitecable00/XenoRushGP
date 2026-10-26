@@ -30,6 +30,9 @@ class Racer(
     var finishTimeMs = -1L
     var reflectT = 0f
     var boostT = 0f
+    var boostCd = 0f                     // manual boost recharge left after a press
+    /** True when the current boostT was started by the button, so the cooldown follows it. */
+    var boostArmed = false
     var bullets = Arms.MAX_BULLETS
     var rockets = Arms.MAX_ROCKETS
     var mines = 2
@@ -41,6 +44,10 @@ class Racer(
     var aiBurst = 0
     var lastLapStart = 0L
     val lapTimes = ArrayList<Long>()
+    var stunT = 0f                       // crash: no steering or throttle
+    var respawnT = 0f                    // waiting to return at the start of this lap
+    var invulnT = 0f                     // brief immunity after a respawn
+    var wallCd = 0f                      // gap between barrier hits
 
     fun maxEnergy(): Int = Arms.MAX_HULL
     fun maxSpeed(): Float = vehicle.topSpeed * (1f + (vs.e - 1) * 0.035f)
@@ -50,6 +57,8 @@ class Racer(
     fun rocketDamage(): Float = Arms.rocketDamage(vs.r)
     fun missileDamage(): Float = Arms.missileDamage(vs.m)
     fun mineDamage(): Float = Arms.mineDamage(vs.n)
+    /** Top-speed multiplier while a boost is active. Pad and button share this cap. */
+    fun boostMultiplier(): Float = Boost.multiplier(vs.b)
 
     fun count(w: WeaponType): Int = when (w) {
         WeaponType.BULLET -> bullets
@@ -255,15 +264,16 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             }
         }
 
+        for (r in racers) if (!r.isRemote && r.respawnT > 0f) {
+            r.respawnT -= dt
+            if (r.respawnT <= 0f) respawn(r)
+        }
+
         if (!finished) {
             if (player.lap >= C.LAPS && !player.finished) {
                 player.finished = true
                 player.finishTimeMs = raceTimeMs
                 playerFinished = true
-                finished = true
-            }
-            if (!player.alive) {
-                playerDestroyed = true
                 finished = true
             }
         }
@@ -280,14 +290,20 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         }
 
         val seg = track.segAt(r.z)
+        if (r.invulnT > 0f) r.invulnT -= dt
+        if (r.wallCd > 0f) r.wallCd -= dt
+        val stunned = r.stunT > 0f
+        if (stunned) r.stunT -= dt
 
-        // steering input
+        // steering input. A crash stun locks the wheel.
         var steer = 0f
-        if (r.isPlayer) {
-            if (input.left) steer -= 1f
-            if (input.right) steer += 1f
-        } else {
-            steer = aiSteer(r, seg)
+        if (!stunned) {
+            if (r.isPlayer) {
+                if (input.left) steer -= 1f
+                if (input.right) steer += 1f
+            } else {
+                steer = aiSteer(r, seg)
+            }
         }
 
         val speedRatio = r.speed / r.maxSpeed()
@@ -297,8 +313,10 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         r.x -= dx * speedRatio * seg.curve * C.CENTRIFUGAL / r.grip()
 
         // throttle
-        val maxSpd = r.maxSpeed() * (if (r.boostT > 0f) 1.35f else 1f)
-        if (r.isPlayer) {
+        val maxSpd = r.maxSpeed() * (if (r.boostT > 0f) r.boostMultiplier() else 1f)
+        if (stunned) {
+            r.speed = (r.speed - 6000f * dt).coerceAtLeast(0f)
+        } else if (r.isPlayer) {
             if (input.gas) r.speed += r.accel() * dt
             else if (input.brake) r.speed -= 9000f * dt
             else r.speed -= 1400f * dt
@@ -306,7 +324,19 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             val target = maxSpd * r.aiSkill * (if (abs(seg.curve) > 2f) 0.86f else 1f)
             r.speed += r.accel() * dt * (if (r.speed < target) 1f else -0.4f)
         }
-        if (r.boostT > 0f) r.boostT -= dt
+        if (r.boostT > 0f) {
+            r.boostT -= dt
+            if (r.boostT <= 0f) {
+                r.boostT = 0f
+                if (r.boostArmed) {
+                    r.boostCd = Boost.COOLDOWN_S
+                    r.boostArmed = false
+                }
+            }
+        } else if (r.boostCd > 0f) {
+            r.boostCd -= dt
+            if (r.boostCd < 0f) r.boostCd = 0f
+        }
         if (r.reflectT > 0f) r.reflectT -= dt
         if (r.fireCooldown > 0f) r.fireCooldown -= dt
         if (r.gunCooldown > 0f) r.gunCooldown -= dt
@@ -316,7 +346,18 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             if (r.speed > 3600f) r.speed -= 8000f * dt
             if (r.isPlayer) shakeT = 0.25f
         }
-        r.x = clamp(r.x, -C.MAX_LATERAL, C.MAX_LATERAL)
+        val rawX = r.x
+        val wall = C.MAX_LATERAL
+        val pen = if (rawX > wall) rawX - wall else if (rawX < -wall) -wall - rawX else 0f
+        r.x = clamp(rawX, -wall, wall)
+        if (pen > 0f && r.wallCd <= 0f && r.invulnT <= 0f && r.stunT <= 0f) {
+            val along = r.speed * dt
+            when (Impact.kind(r.speed, pen, along)) {
+                Impact.Kind.CRASH -> crash(r)
+                Impact.Kind.SCRAPE -> scrape(r, Impact.scrapeKeep(r.speed, pen, along))
+                Impact.Kind.NONE -> {}
+            }
+        }
         r.speed = clamp(r.speed, 0f, maxSpd * 1.2f)
         // Light slowdown on the recharge lane. Player and AI. First half is
         // SPEED_CAP_FIRST, second half is SPEED_CAP_SECOND, blended in between.
@@ -339,7 +380,29 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         }
         chargePit(r, prevZ)
 
-        if (!r.isPlayer) aiCombat(r)
+        if (!r.isPlayer) {
+            maybeAiBoost(r)
+            aiCombat(r)
+        }
+    }
+
+    /** Button boost. The speed pad does not use this, so it does not start the recharge. */
+    fun requestBoost(r: Racer): Boolean {
+        if (!r.alive || r.finished || r.boostT > 0f || r.boostCd > 0f) return false
+        r.boostT = Boost.DURATION_S
+        r.boostArmed = true
+        if (r.isPlayer) events.add("BOOST")
+        cue(RaceSfx.BOOST, r)
+        return true
+    }
+
+    /** AI spends boost on open straights, not in the recharge lane. */
+    private fun maybeAiBoost(r: Racer) {
+        if (r.boostT > 0f || r.boostCd > 0f) return
+        if (PitStrip.onStrip(track, r.x, r.z)) return
+        if (abs(track.segAt(r.z).curve) > 0.6f) return
+        if (r.speed < r.maxSpeed() * 0.55f) return
+        requestBoost(r)
     }
 
     /**
@@ -439,7 +502,13 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         when (t) {
             PowerUpType.SHIELD -> { r.shield = (r.shield + Arms.SHIELD_PICKUP).coerceAtMost(Arms.MAX_SHIELD); events.add("SHIELD ${r.shield}") }
             PowerUpType.REFLECT -> { r.reflectT = 8f; events.add("REFLECT ON") }
-            PowerUpType.SPEED -> { r.boostT = 3f; r.speed += 1500f; events.add("BOOST"); cue(RaceSfx.BOOST, r) }
+            PowerUpType.SPEED -> {
+                // Same cap as the button. Refreshing the timer does not raise the multiplier.
+                r.boostT = Boost.DURATION_S
+                r.speed += 1500f
+                events.add("BOOST")
+                cue(RaceSfx.BOOST, r)
+            }
             PowerUpType.REPAIR -> { r.energy = (r.energy + Arms.REPAIR_PICKUP).coerceAtMost(Arms.MAX_HULL); events.add("+${Arms.REPAIR_PICKUP} HULL") }
             PowerUpType.AMMO -> {
                 r.bullets = (r.bullets + 30).coerceAtMost(Arms.MAX_BULLETS)
@@ -560,8 +629,64 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         return if (abs(d) > l / 2f) d - Math.signum(d) * l else d
     }
 
+    /** Back to the start/finish of the lap they were on. Lap index and the race clock stay put. */
+    private fun respawn(r: Racer) {
+        r.respawnT = 0f
+        r.alive = true
+        r.energy = Arms.MAX_HULL
+        r.shield = Arms.MAX_SHIELD
+        r.shieldBank = 0f
+        r.speed = 0f
+        r.x = 0f
+        r.z = 0f
+        r.stunT = 0f
+        r.invulnT = Impact.INVULN_S
+        r.boostT = 0f
+        r.boostArmed = false
+        if (r.isPlayer) events.add("RESPAWN")
+    }
+
+    private fun scrape(r: Racer, keep: Float) {
+        r.wallCd = Impact.SCRAPE_COOLDOWN_S
+        r.speed *= keep
+        r.shield = (r.shield - Impact.SCRAPE_SHIELD).coerceAtLeast(0)
+        cue(RaceSfx.SCRAPE, r)
+        if (r.isPlayer) {
+            shakeT = 0.16f
+            events.add("SCRAPE")
+        }
+    }
+
+    private fun crash(r: Racer) {
+        r.wallCd = Impact.CRASH_STUN_S
+        r.stunT = Impact.CRASH_STUN_S
+        r.speed *= Impact.CRASH_KEEP
+        r.shield = (r.shield - Impact.CRASH_SHIELD).coerceAtLeast(0)
+        r.energy -= Impact.CRASH_HULL
+        cue(RaceSfx.CRASH, r)
+        if (r.isPlayer) {
+            shakeT = 0.55f
+            events.add("CRASH")
+        }
+        if (r.energy <= 0) wreck(r)
+    }
+
+    private fun wreck(r: Racer) {
+        r.energy = 0
+        r.alive = false
+        r.speed = 0f
+        r.stunT = 0f
+        r.respawnT = Impact.RESPAWN_DELAY_S
+        cue(RaceSfx.EXPLODE, r)
+        if (r.isPlayer) {
+            events.add("DESTROYED")
+            shakeT = 0.7f
+        }
+    }
+
     fun hitRacer(r: Racer, dmg: Float, proj: Projectile?): HitOutcome {
         if (!r.alive) return HitOutcome.NONE
+        if (r.invulnT > 0f) return HitOutcome.NONE
         if (r.reflectT > 0f && proj != null && !proj.reflected) {
             // reflect: projectile reverses toward its owner (guided missiles re-lock on the shooter)
             proj.reflected = true
@@ -587,12 +712,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
             shakeT = 0.3f
             events.add("HIT -$d")
         }
-        if (r.energy <= 0) {
-            r.energy = 0
-            r.alive = false
-            r.speed = 0f
-            if (r.isPlayer) events.add("DESTROYED")
-        }
+        if (r.energy <= 0) wreck(r)
         return HitOutcome.DAMAGED
     }
 

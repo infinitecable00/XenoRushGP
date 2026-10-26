@@ -27,7 +27,15 @@ object Changelog {
             "Music and sound-effect volume in Settings",
             "Engine, boost, weapons, hits and pickups play sound effects",
             "Each ship has its own gun sound",
-            "Recharge strip fills the shield and slows the ship"
+            "Recharge strip fills the shield and slows the ship",
+            "BST button: 3 seconds at +30% speed, then a 10 second recharge",
+            "FPS counter in Settings, off unless you turn it on",
+            "Max Graphics toggle. Off stays at 60 FPS. On can use 90, 120, or 240",
+            "Haptics, gamepad, a local crash log, and first-race tips",
+            "Leaving the app pauses a single-player race",
+            "Countdown tones on 3, 2, 1, and GO",
+            "Wall scrapes and crashes. A destroyed ship respawns on the same lap",
+            "Announcer voice in Settings. Robot is the default"
         ),
         "v1.5.0" to listOf(
             "The game now runs in landscape (turn the phone either way)",
@@ -82,8 +90,34 @@ class Game(private val context: Context, private val activity: Activity?) {
         m.onSongStart = { title -> toast("NOW PLAYING: $title") }
     }
     val sfx = SfxPlayer(context)
+    val haptics = Haptics(context)
+    val voice = AnnouncerPlayer(context)
     val save: SaveData = SaveManager(context).load()
     private val saveManager = SaveManager(context)
+    private val fpsMeter = FpsMeter()
+    /** Active quality. [Graphics.Tier.SAFE] while Max Graphics is off. */
+    var graphicsTier: Graphics.Tier = Graphics.Tier.SAFE
+    /** Presentation target. 60 while Max Graphics is off. */
+    var targetHz: Int = FrameCap.TARGET_FPS
+    private var displayRates: List<Float> = listOf(60f)
+    private var fpsLocked = false
+    private var deviceProfile: Graphics.DeviceProfile? = null
+    private var tipsOpen = false
+    @Volatile private var inBackground = false
+    @Volatile private var bgSim = false
+    private var bgThread: Thread? = null
+
+    init {
+        if (!save.showFpsSet) {
+            val debuggable = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            save.showFps = debuggable
+            save.showFpsSet = true
+            saveManager.save(save)
+        }
+        if (save.maxGraphics) graphicsTier = Graphics.detect(readDevice())
+    }
+
+    fun frameBudgetNs(): Long = 1_000_000_000L / targetHz.coerceIn(30, 240)
 
     @Volatile var screen = Screen.TITLE
     var w = 1080
@@ -112,6 +146,7 @@ class Game(private val context: Context, private val activity: Activity?) {
     private var lastFire = false
     private var raceStartWall = 0L
     private var lastCd = 99
+    private var lapHeard = -1
     private var raceResult: RaceResult? = null
 
     private var tone: ToneGenerator? = null
@@ -190,6 +225,7 @@ class Game(private val context: Context, private val activity: Activity?) {
     fun update(dt: Float) {
         while (true) { val f = mainQueue.poll() ?: break; f() }
         drainTouch()
+        drainPad()
         titleTime += dt
         refreshOnline()
         if (screen != Screen.RACE) maybeSync()
@@ -203,11 +239,9 @@ class Game(private val context: Context, private val activity: Activity?) {
             val r = link.race
             val toGo = link.secondsToStart()
             r.countdown = if (toGo > 0f) toGo else 0f
-            if (r.countdown > 0f) {
-                val ci = (r.countdown + 0.99f).toInt()
-                if (ci != lastCd && ci <= 3) { lastCd = ci; beep(70, 120) }
-            }
+            if (r.countdown > 0f) cueCountdown(r)
             r.update(dt, input, System.currentTimeMillis() - raceStartWall)
+            if (screen == Screen.RACE && !inBackground) noteRaceCalls(r)
             if (screen == Screen.RACE) handleWeapons(r)
             drainSfx(r)
             link.publish()
@@ -215,16 +249,11 @@ class Game(private val context: Context, private val activity: Activity?) {
             syncAudio(dt)
             return
         }
-        if (screen == Screen.RACE && race != null) {
+        if (screen == Screen.RACE && race != null && !(tipsOpen && mpLink == null)) {
             val r = race!!
-            if (r.countdown > 0f) {
-                val ci = (r.countdown + 0.99f).toInt()
-                if (ci != lastCd) {
-                    lastCd = ci
-                    if (ci > 0) beep(70, 120) else beep(90, 250)
-                }
-            }
+            if (r.countdown > 0f) cueCountdown(r)
             r.update(dt, input, System.currentTimeMillis() - raceStartWall)
+            if (!inBackground) noteRaceCalls(r)
             // fire handling (tap FIRE button)
             handleWeapons(r)
             drainSfx(r)
@@ -237,6 +266,7 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     private var lastSpecial = false
     private var lastCycle = false
+    private var lastBoost = false
 
     /** GUN fires while held; special fires once per tap; WPN cycles the special weapon. */
     private fun handleWeapons(r: Race) {
@@ -244,6 +274,8 @@ class Game(private val context: Context, private val activity: Activity?) {
         if (raceUi.gunPressed && r.countdown <= 0f) r.fireGun(p)
         if (raceUi.cyclePressed && !lastCycle) { p.cycleSecondary(); beep(40, 40) }
         lastCycle = raceUi.cyclePressed
+        if (raceUi.boostPressed && !lastBoost && r.countdown <= 0f) r.requestBoost(p)
+        lastBoost = raceUi.boostPressed
         if (raceUi.specialPressed && !lastSpecial && r.countdown <= 0f) {
             // Fire cues live in Race.fireSecondary. A failed tap only shows the HUD message.
             if (!r.fireSecondary(p)) r.events.add("NO ${Arms.short(p.secondary)} LEFT")
@@ -267,9 +299,12 @@ class Game(private val context: Context, private val activity: Activity?) {
             Screen.RESULTS -> MusicCue.NONE
             else -> MusicCue.MENU
         }
-        music.update(cue, screen == Screen.PAUSED, save.music, save.musicVolume.coerceIn(0, 100) / 100f, dt)
-        val sfxVol = if (save.sound) save.sfxVolume.coerceIn(0, 100) / 100f else 0f
-        val driving = screen == Screen.RACE && r != null && r.countdown <= 0f && !r.finished && r.player.alive
+        val talk = if (save.sound && !inBackground) save.sfxVolume.coerceIn(0, 100) / 100f else 0f
+        voice.tick(dt, Announcer.voiceOf(save.voice), talk)
+        val ducked = if (voice.speaking) Announcer.DUCK else 1f
+        music.update(cue, screen == Screen.PAUSED || inBackground, save.music, save.musicVolume.coerceIn(0, 100) / 100f, dt, ducked)
+        val sfxVol = if (save.sound && !inBackground) save.sfxVolume.coerceIn(0, 100) / 100f else 0f
+        val driving = screen == Screen.RACE && !inBackground && r != null && r.countdown <= 0f && !r.finished && r.player.alive
         val top = r?.player?.maxSpeed()?.coerceAtLeast(1f) ?: 1f
         val ratio = if (r == null) 0f else r.player.speed / top
         sfx.updateEngine(driving, ratio, (r?.player?.boostT ?: 0f) > 0f, sfxVol)
@@ -284,27 +319,81 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     private fun drainSfx(r: Race) {
         val cues = r.drainSfx()
-        if (cues.isEmpty() || screen != Screen.RACE || !save.sound) return
+        if (cues.isEmpty() || screen != Screen.RACE || inBackground) return
+        if (save.haptics) {
+            for (c in cues) {
+                val kind = HapticMap.kind(c) ?: continue
+                haptics.pulse(kind)
+            }
+        }
+        if (!save.sound) return
         val vol = save.sfxVolume.coerceIn(0, 100) / 100f
         if (vol <= 0f) return
+        for (c in cues) {
+            if (!c.fromPlayer) continue
+            if (c.slot == RaceSfx.PICKUP) voice.offer(Call.POWER_UP, Announcer.voiceOf(save.voice), vol)
+            if (c.slot == RaceSfx.BOOST) voice.offer(Call.BOOST, Announcer.voiceOf(save.voice), vol)
+        }
         // Player and nearer ships first, so the mix cap drops the far AI copies.
         val ordered = cues.sortedWith(compareBy({ !it.fromPlayer }, { it.distance }))
         for (c in ordered) sfx.play(c, vol)
     }
 
-    /** App sent to background: the game loop stops, so pause music and effects directly. */
+    /**
+     * App sent to the background. A single-player race opens the pause menu and stays frozen.
+     * Multiplayer keeps simulating on a side thread so the race is not paused.
+     */
     fun onAppPause() {
+        inBackground = true
         music.pause()
         sfx.onAppPause()
+        voice.stop()
+        if (multiplayerLive()) startBgSim()
+        else if (BackgroundPolicy.pauseSinglePlayer(screen == Screen.RACE, multiplayer = false)) screen = Screen.PAUSED
     }
 
-    /** App returned to the foreground. Race music stays paused if the pause menu is up. */
-    fun onAppResume() = sfx.onAppResume()
+    /** App returned to the foreground. A single-player pause menu stays up until RESUME. */
+    fun onAppResume() {
+        stopBgSim()
+        inBackground = false
+        sfx.onAppResume()
+    }
+
+    private fun multiplayerLive(): Boolean =
+        mpLink != null || (mp != null && (screen == Screen.MP_LOBBY || screen == Screen.RACE || screen == Screen.RESULTS || screen == Screen.PAUSED))
+
+    private fun startBgSim() {
+        if (bgSim) return
+        bgSim = true
+        bgThread = Thread {
+            var last = System.nanoTime()
+            while (bgSim) {
+                val now = System.nanoTime()
+                var dt = (now - last) / 1_000_000_000f
+                last = now
+                if (dt > 0.1f) dt = 0.1f
+                if (dt < 0f) dt = 0f
+                try { update(dt) } catch (_: Exception) {}
+                val remain = frameBudgetNs() - (System.nanoTime() - now)
+                if (remain > 1_000_000L) {
+                    try { Thread.sleep(remain / 1_000_000L) } catch (_: Exception) {}
+                }
+            }
+        }.also { it.name = "xenorush-mp"; it.start() }
+    }
+
+    private fun stopBgSim() {
+        bgSim = false
+        try { bgThread?.join(800) } catch (_: Exception) {}
+        bgThread = null
+    }
 
     /** Activity is going away. Release players so they cannot leak. */
     fun onAppDestroy() {
+        stopBgSim()
         music.release()
         sfx.release()
+        voice.release()
         try { tone?.release() } catch (_: Exception) {}
         tone = null
     }
@@ -329,10 +418,12 @@ class Game(private val context: Context, private val activity: Activity?) {
         race = Race(track, ais + player, 0)
         raceStartWall = System.currentTimeMillis() + 4000
         lastCd = 99
+        lapHeard = -1
         race!!.player.lastLapStart = 0
         input.left = false; input.right = false; input.gas = false; input.brake = false
+        fpsMeter.reset()
+        tipsOpen = !save.tipsSeen
         screen = Screen.RACE
-        beep(70, 150)
     }
 
     private fun finishRace() {
@@ -342,6 +433,7 @@ class Game(private val context: Context, private val activity: Activity?) {
         var firstWin = false
         if (player.finished && player.alive) {
             val rank = r.rank(player)
+            voice.offer(if (rank == 1) Call.WIN else Call.LOSE, Announcer.voiceOf(save.voice), voiceVol())
             credits = Catalog.rewardForRank(rank, raceTrack!!.def.difficulty)
             val ts = save.trackState(selectedTrack)
             if (rank == 1) {
@@ -352,7 +444,10 @@ class Game(private val context: Context, private val activity: Activity?) {
                 }
             }
             val bestLap = player.lapTimes.minOrNull() ?: Long.MAX_VALUE
-            if (bestLap < ts.bestLapMs || ts.bestLapMs == 0L) ts.bestLapMs = bestLap
+            if (bestLap < ts.bestLapMs || ts.bestLapMs == 0L) {
+                voice.offer(Call.HIGH_SCORE, Announcer.voiceOf(save.voice), voiceVol())
+                ts.bestLapMs = bestLap
+            }
         }
         save.credits += credits
         persist()
@@ -395,8 +490,10 @@ class Game(private val context: Context, private val activity: Activity?) {
         val backend = mpBackend ?: return
         raceStartWall = System.currentTimeMillis() + (room.startAt - backend.serverNow())
         lastCd = 99
+        lapHeard = -1
         link.race.player.lastLapStart = 0
         releaseAllControls()
+        fpsMeter.reset()
         screen = Screen.RACE
     }
 
@@ -407,11 +504,15 @@ class Game(private val context: Context, private val activity: Activity?) {
         if (!mpRewarded && r.player.finished && r.player.alive) {
             mpRewarded = true
             val rank = link.standings().indexOf(r.player) + 1
+            voice.offer(if (rank == 1) Call.WIN else Call.LOSE, Announcer.voiceOf(save.voice), voiceVol())
             credits = Catalog.rewardForRank(rank, link.track.def.difficulty)
             save.credits += credits
             val ts = save.trackState(link.track.def.id)
             val bestLap = r.player.lapTimes.minOrNull() ?: Long.MAX_VALUE
-            if (ts.owned && (bestLap < ts.bestLapMs || ts.bestLapMs == 0L)) ts.bestLapMs = bestLap
+            if (ts.owned && (bestLap < ts.bestLapMs || ts.bestLapMs == 0L)) {
+                voice.offer(Call.HIGH_SCORE, Announcer.voiceOf(save.voice), voiceVol())
+                ts.bestLapMs = bestLap
+            }
             persist()
         }
         link.publish(force = true)
@@ -573,10 +674,100 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     // ---------------- drawing ----------------
 
+    /** Called from the game thread after each presented frame. Steps quality down only during a race. */
+    fun noteFrame(frameNs: Long) {
+        val step = fpsMeter.sample(frameNs, targetHz)
+        if (!step || !save.maxGraphics || screen != Screen.RACE) return
+        val next = graphicsTier.lower()
+        if (next != graphicsTier) {
+            graphicsTier = next
+            toast("Graphics eased to ${graphicsTier.label} to hold $targetHz FPS")
+            return
+        }
+        val slower = Graphics.lowerFps(targetHz, displayRates)
+        if (slower < targetHz) {
+            fpsLocked = true
+            targetHz = slower
+            applyWindowMode(targetHz)
+            fpsMeter.reset()
+            toast("Frame rate eased to $slower FPS")
+        }
+    }
+
+    /** Re-read the panel when the surface appears. A stepped-down rate stays down. */
+    fun ensureDisplayMode() {
+        displayRates = readRefreshRates()
+        if (!save.maxGraphics) targetHz = FrameCap.TARGET_FPS
+        else if (!fpsLocked) targetHz = Graphics.fpsTarget(readDevice(), displayRates)
+        applyWindowMode(targetHz)
+    }
+
+    private fun readRefreshRates(): List<Float> {
+        val act = activity ?: return listOf(60f)
+        return try {
+            val display = if (android.os.Build.VERSION.SDK_INT >= 30) act.display
+            else @Suppress("DEPRECATION") act.windowManager.defaultDisplay
+            if (display != null && android.os.Build.VERSION.SDK_INT >= 23) display.supportedModes.map { it.refreshRate }
+            else listOf(display?.refreshRate ?: 60f)
+        } catch (_: Exception) {
+            listOf(60f)
+        }
+    }
+
+    private fun applyWindowMode(hz: Int) {
+        val act = activity ?: return
+        act.runOnUiThread {
+            try {
+                if (android.os.Build.VERSION.SDK_INT < 23) return@runOnUiThread
+                val display = if (android.os.Build.VERSION.SDK_INT >= 30) act.display
+                else @Suppress("DEPRECATION") act.windowManager.defaultDisplay
+                val match = display?.supportedModes
+                    ?.filter { kotlin.math.abs(it.refreshRate - hz) < 3.5f }
+                    ?.maxByOrNull { it.refreshRate } ?: return@runOnUiThread
+                val lp = act.window.attributes
+                lp.preferredDisplayModeId = match.modeId
+                act.window.attributes = lp
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun readDevice(): Graphics.DeviceProfile {
+        deviceProfile?.let { return it }
+        val p = try { DeviceInfo.profile(context) } catch (_: Exception) {
+            Graphics.DeviceProfile(0, Runtime.getRuntime().availableProcessors().coerceAtLeast(1), 0, 0, "")
+        }
+        deviceProfile = p
+        return p
+    }
+
+    private fun applyMaxGraphics(on: Boolean) {
+        save.maxGraphics = on
+        saveManager.save(save)
+        fpsMeter.reset()
+        fpsLocked = false
+        if (on) {
+            graphicsTier = Graphics.detect(readDevice())
+            displayRates = readRefreshRates()
+            targetHz = Graphics.fpsTarget(readDevice(), displayRates)
+            applyWindowMode(targetHz)
+            toast("Max graphics: ${graphicsTier.label}, $targetHz FPS")
+        } else {
+            graphicsTier = Graphics.Tier.SAFE
+            targetHz = FrameCap.TARGET_FPS
+            applyWindowMode(targetHz)
+            toast("Graphics set to the safe default, 60 FPS")
+        }
+    }
+
     fun draw(c: Canvas) {
         w = c.width
         h = c.height
         buttons.clear()
+        backAction = null
+        renderer.quality = graphicsTier
+        renderer.showTouchControls = !padDriving
+        renderer.fpsLabel = if (save.showFps && (screen == Screen.RACE || screen == Screen.PAUSED)) fpsMeter.label() else null
         when (screen) {
             Screen.TITLE -> drawTitle(c)
             Screen.MENU -> drawMenu(c)
@@ -595,6 +786,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                 val t = raceTrack
                 if (r != null && t != null) {
                     renderer.drawRace(c, r, t, input, raceUi)
+                    if (tipsOpen && mpLink == null) drawTips(c)
                     if (screen == Screen.PAUSED) drawPauseOverlay(c)
                 }
             }
@@ -611,6 +803,9 @@ class Game(private val context: Context, private val activity: Activity?) {
                 drawPauseOverlay(c)
             }
         }
+        if (padConnected && screen != Screen.RACE && buttons.isNotEmpty()) {
+            renderer.drawFocus(c, buttons[menuIndex.coerceIn(0, buttons.lastIndex)].first)
+        }
         drawToast(c)
     }
 
@@ -618,6 +813,12 @@ class Game(private val context: Context, private val activity: Activity?) {
     private val U: Float get() = h / 100f
     // Scroll limit for the current list screen, set while drawing and used by the drag handler.
     private var scrollMax = 0f
+    private var backAction: (() -> Unit)? = null
+    private var menuIndex = 0
+    /** A gamepad has been used. Menus draw a focus ring. */
+    var padConnected = false
+    /** Hide the on-screen race buttons while the pad is the active control. */
+    var padDriving = false
 
     private fun bg(c: Canvas, color: Int = Color.argb(255, 10, 12, 24)) {
         val p = Paint()
@@ -627,6 +828,7 @@ class Game(private val context: Context, private val activity: Activity?) {
 
     private fun header(c: Canvas, title: String, back: (() -> Unit)? = null) {
         renderer.drawTextCentered(c, title, w / 2f, 10.5f * U, 6.5f * U, Color.WHITE, Paint.Align.CENTER, w * 0.5f)
+        backAction = back
         if (back != null) {
             val r = RectF(2f * U, 2.5f * U, 2f * U + w * 0.17f, 13.5f * U)
             renderer.drawButton(c, r, "◀ BACK", Color.argb(255, 60, 70, 110), false, 4.6f * U)
@@ -785,11 +987,12 @@ class Game(private val context: Context, private val activity: Activity?) {
         renderer.drawTextCentered(c, "v${Changelog.VERSION}", w / 2f, 32.5f * U, 3.4f * U, Color.argb(180, 160, 170, 210))
         renderer.drawTextCentered(c, "Developed and published by", w / 2f, 41f * U, 4f * U, Color.argb(220, 170, 180, 220))
         renderer.drawTextCentered(c, CompanyInfo.COMPANY, w / 2f, 49.5f * U, 7f * U, Color.argb(255, 255, 214, 90))
-        renderer.drawTextCentered(c, "Music by ${MusicConfig.ARTIST}", w / 2f, 58f * U, 4.6f * U, Color.argb(255, 0, 229, 255))
-        val mail = RectF(w * 0.3f, 62.5f * U, w * 0.7f, 75.5f * U)
+        renderer.drawTextCentered(c, "Music by ${MusicConfig.ARTIST}", w / 2f, 56f * U, 4.2f * U, Color.argb(255, 0, 229, 255))
+        renderer.drawTextCentered(c, "Announcer: Kenney.nl (CC0)", w / 2f, 61f * U, 3.2f * U, Color.argb(220, 200, 180, 255))
+        val mail = RectF(w * 0.3f, 66f * U, w * 0.7f, 78f * U)
         renderer.drawButton(c, mail, "SUPPORT: ${CompanyInfo.SUPPORT_EMAIL}", Color.argb(255, 40, 60, 150), false, 4.6f * U)
         buttons.add(mail to { emailSupport() })
-        renderer.drawTextCentered(c, "Tap to email support", w / 2f, 80.5f * U, 3.2f * U, Color.argb(170, 130, 140, 180))
+        renderer.drawTextCentered(c, "Tap to email support", w / 2f, 82f * U, 3.2f * U, Color.argb(170, 130, 140, 180))
         renderer.drawTextCentered(c, "Payments in XRP on the XRP Ledger", w / 2f, 87f * U, 3.4f * U, Color.argb(180, 160, 170, 210))
         renderer.drawTextCentered(c, "© ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)} ${CompanyInfo.COMPANY}. All rights reserved.", w / 2f, 94f * U, 3.2f * U, Color.argb(160, 130, 140, 180))
     }
@@ -1135,9 +1338,14 @@ class Game(private val context: Context, private val activity: Activity?) {
         val bh = 11.5f * U
         fun cell(i: Int): RectF {
             val x = 3f * U + (i % 2) * (colW + gap)
-            val y = 18f * U + (i / 2) * (bh + gap)
+            val y = 18f * U + (i / 2) * (bh + gap) - scroll
             return RectF(x, y, x + colW, y + bh)
         }
+        val rows = 7
+        scrollMax = (18f * U + rows * (bh + gap) + 16f * U - h).coerceAtLeast(0f)
+        scroll = scroll.coerceIn(0f, scrollMax)
+        c.save()
+        c.clipRect(0f, 15f * U, w.toFloat(), h.toFloat())
         val ts = 4.2f * U
         val net = cell(0)
         renderer.drawButton(c, net, "NETWORK: ${if (save.mainnet) "MAINNET (real XRP)" else "TESTNET (play money)"}", if (save.mainnet) Color.argb(255, 150, 60, 40) else Color.argb(255, 40, 110, 90), false, ts)
@@ -1165,10 +1373,63 @@ class Game(private val context: Context, private val activity: Activity?) {
         val reset = cell(6)
         renderer.drawButton(c, reset, "RESET ALL PROGRESS", Color.argb(255, 140, 40, 40), false, ts)
         buttons.add(reset to { confirmReset() })
+        val fps = cell(7)
+        renderer.drawButton(c, fps, "FPS COUNTER: ${if (save.showFps) "ON" else "OFF"}", Color.argb(255, 40, 80, 110), false, ts)
+        buttons.add(fps to {
+            save.showFps = !save.showFps
+            save.showFpsSet = true
+            saveManager.save(save)
+        })
+        val gfx = cell(8)
+        val gfxLabel = if (save.maxGraphics) "MAX GRAPHICS: ON (${graphicsTier.label})" else "MAX GRAPHICS: OFF"
+        renderer.drawButton(c, gfx, gfxLabel, Color.argb(255, 70, 50, 120), false, ts)
+        buttons.add(gfx to { applyMaxGraphics(!save.maxGraphics) })
+        val hap = cell(9)
+        renderer.drawButton(c, hap, "HAPTICS: ${if (save.haptics) "ON" else "OFF"}", Color.argb(255, 90, 60, 110), false, ts)
+        buttons.add(hap to { save.haptics = !save.haptics; saveManager.save(save) })
+        val tips = cell(10)
+        renderer.drawButton(c, tips, "SHOW TIPS AGAIN", Color.argb(255, 50, 80, 120), false, ts)
+        buttons.add(tips to {
+            save.tipsSeen = false
+            tipsOpen = false
+            saveManager.save(save)
+            toast("Tips will show on the next race")
+        })
+        val crash = cell(11)
+        renderer.drawButton(c, crash, if (CrashLog.has(context)) "SHARE CRASH LOG" else "SHARE CRASH LOG (none)", Color.argb(255, 80, 70, 90), false, ts)
+        buttons.add(crash to {
+            val act = activity
+            if (act == null || !CrashLog.share(act)) toast("No crash log saved")
+        })
+        val ann = cell(12)
+        val annVoice = Announcer.voiceOf(save.voice)
+        renderer.drawButton(c, ann, "ANNOUNCER: ${Announcer.label(annVoice)}", Color.argb(255, 90, 50, 120), false, ts)
+        buttons.add(ann to {
+            save.voice = Announcer.wire(Announcer.next(Announcer.voiceOf(save.voice)))
+            saveManager.save(save)
+        })
 
-        renderer.drawTextCentered(c, "Merchant wallet is developer-set and receives payments.", w / 2f, 78f * U, 3.4f * U, Color.argb(200, 160, 170, 210))
-        renderer.drawTextCentered(c, "The game never asks for private keys or seeds.", w / 2f, 84f * U, 3.4f * U, Color.argb(200, 160, 170, 210))
-        renderer.drawTextCentered(c, "Entitlements are stored on-device (prototype-grade).", w / 2f, 90f * U, 3.2f * U, Color.argb(160, 140, 150, 190))
+        val foot = 18f * U + rows * (bh + gap) - scroll
+        renderer.drawTextCentered(c, "Merchant wallet is developer-set. The game never asks for keys or seeds.", w / 2f, foot + 4f * U, 3f * U, Color.argb(200, 160, 170, 210))
+        renderer.drawTextCentered(c, "Max Graphics off is 60 FPS. On aims for the fastest rate this phone can hold.", w / 2f, foot + 8.5f * U, 3f * U, Color.argb(160, 140, 150, 190))
+        c.restore()
+    }
+
+    private fun drawTips(c: Canvas) {
+        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply { color = Color.argb(185, 5, 6, 14) })
+        renderer.drawTextCentered(c, "FIRST RACE", w / 2f, 22f * U, 8f * U, Color.argb(255, 0, 229, 255))
+        renderer.drawTextCentered(c, "BST — 3 seconds at +30% speed, then 10 seconds to recharge.", w / 2f, 36f * U, 4f * U, Color.WHITE, Paint.Align.CENTER, w * 0.86f)
+        renderer.drawTextCentered(c, "Hold GUN to fire. The orange button uses a rocket, missile, or mine. WPN cycles them.", w / 2f, 46f * U, 3.8f * U, Color.argb(230, 220, 225, 245), Paint.Align.CENTER, w * 0.86f)
+        renderer.drawTextCentered(c, "The rainbow strip on the right fills your shield. It does not repair the hull.", w / 2f, 56f * U, 3.8f * U, Color.argb(230, 220, 225, 245), Paint.Align.CENTER, w * 0.86f)
+        val got = RectF(w * 0.35f, 68f * U, w * 0.65f, 82f * U)
+        renderer.drawButton(c, got, "GOT IT", Color.argb(255, 40, 90, 160), false, 5f * U)
+        buttons.add(got to { dismissTips() })
+    }
+
+    private fun dismissTips() {
+        tipsOpen = false
+        save.tipsSeen = true
+        saveManager.save(save)
     }
 
     private fun confirmReset() {
@@ -1436,6 +1697,7 @@ class Game(private val context: Context, private val activity: Activity?) {
     private fun handleMenuTouch(e: TouchEvt) {
         when (e.action) {
             MotionEvent.ACTION_DOWN -> {
+                padDriving = false
                 dragStartY = e.y
                 dragStartScroll = scroll
                 dragged = false
@@ -1445,7 +1707,7 @@ class Game(private val context: Context, private val activity: Activity?) {
                 if (abs(e.y - dragStartY) > 24f) dragged = true
                 if (dragged) scroll = dragStartScroll - (e.y - dragStartY)
                 when (screen) {
-                    Screen.TRACKS, Screen.GARAGE, Screen.UPDATES, Screen.SHOP -> scroll = scroll.coerceIn(0f, scrollMax)
+                    Screen.TRACKS, Screen.GARAGE, Screen.UPDATES, Screen.SHOP, Screen.SETTINGS -> scroll = scroll.coerceIn(0f, scrollMax)
                     else -> {}
                 }
             }
@@ -1474,11 +1736,25 @@ class Game(private val context: Context, private val activity: Activity?) {
             if (inCircle(x, y, L.gun)) put("gun")
             if (inCircle(x, y, L.special)) put("special")
             if (inCircle(x, y, L.cycle)) put("cycle")
+            if (inCircle(x, y, L.boost)) put("boost")
         }
         fun release(pid: Int) {
             pointerButtons.remove(pid)?.forEach { setBtn(it, false) }
         }
 
+        when (e.action) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                padDriving = false
+                if (tipsOpen && mpLink == null && screen == Screen.RACE) return
+            }
+            MotionEvent.ACTION_UP -> {
+                if (tipsOpen && mpLink == null && screen == Screen.RACE) {
+                    for ((rect, action) in buttons) if (rect.contains(e.x, e.y)) { action(); break }
+                    return
+                }
+            }
+            else -> {}
+        }
         when (e.action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 if (screen == Screen.RACE) {
@@ -1501,21 +1777,161 @@ class Game(private val context: Context, private val activity: Activity?) {
         }
     }
 
+    private var touchLeft = false
+    private var touchRight = false
+    private var touchGas = false
+    private var touchBrake = false
+    private var touchGun = false
+    private var touchSpecial = false
+    private var touchCycle = false
+    private var touchBoost = false
+    private var padLeft = false
+    private var padRight = false
+    private var padGas = false
+    private var padBrake = false
+    private var padGun = false
+    private var padSpecial = false
+    private var padCycle = false
+    private var padBoost = false
+    private var stickMenu = 0
+
     private fun setBtn(name: String, v: Boolean) {
         when (name) {
-            "left" -> input.left = v
-            "right" -> input.right = v
-            "gas" -> input.gas = v
-            "brake" -> input.brake = v
-            "gun" -> raceUi.gunPressed = v
-            "special" -> raceUi.specialPressed = v
-            "cycle" -> raceUi.cyclePressed = v
+            "left" -> touchLeft = v
+            "right" -> touchRight = v
+            "gas" -> touchGas = v
+            "brake" -> touchBrake = v
+            "gun" -> touchGun = v
+            "special" -> touchSpecial = v
+            "cycle" -> touchCycle = v
+            "boost" -> touchBoost = v
         }
+        publishInput()
+    }
+
+    private fun setPad(name: String, v: Boolean) {
+        when (name) {
+            "left" -> padLeft = v
+            "right" -> padRight = v
+            "gas" -> padGas = v
+            "brake" -> padBrake = v
+            "gun" -> padGun = v
+            "special" -> padSpecial = v
+            "cycle" -> padCycle = v
+            "boost" -> padBoost = v
+        }
+        publishInput()
+    }
+
+    private fun publishInput() {
+        input.left = touchLeft || padLeft
+        input.right = touchRight || padRight
+        input.gas = touchGas || padGas
+        input.brake = touchBrake || padBrake
+        raceUi.gunPressed = touchGun || padGun
+        raceUi.specialPressed = touchSpecial || padSpecial
+        raceUi.cyclePressed = touchCycle || padCycle
+        raceUi.boostPressed = touchBoost || padBoost
     }
 
     fun releaseAllControls() {
-        input.left = false; input.right = false; input.gas = false; input.brake = false
-        raceUi.gunPressed = false; raceUi.specialPressed = false; raceUi.cyclePressed = false
+        touchLeft = false; touchRight = false; touchGas = false; touchBrake = false
+        touchGun = false; touchSpecial = false; touchCycle = false; touchBoost = false
+        padLeft = false; padRight = false; padGas = false; padBrake = false
+        padGun = false; padSpecial = false; padCycle = false; padBoost = false
+        publishInput()
+    }
+
+    class KeyEvt(val code: Int, val down: Boolean, val repeat: Boolean)
+    class AxisEvt(val x: Float, val hatX: Float, val y: Float, val hatY: Float, val gas: Float, val brake: Float)
+    private val keyQueue = java.util.concurrent.ConcurrentLinkedQueue<KeyEvt>()
+    private val axisQueue = java.util.concurrent.ConcurrentLinkedQueue<AxisEvt>()
+
+    fun queueKey(code: Int, down: Boolean, repeat: Boolean) {
+        keyQueue.add(KeyEvt(code, down, repeat))
+    }
+
+    fun queueAxes(x: Float, hatX: Float, y: Float, hatY: Float, gas: Float, brake: Float) {
+        axisQueue.add(AxisEvt(x, hatX, y, hatY, gas, brake))
+    }
+
+    private fun drainPad() {
+        while (true) {
+            val e = keyQueue.poll() ?: break
+            onPadKey(e)
+        }
+        var latest: AxisEvt? = null
+        while (true) {
+            val a = axisQueue.poll() ?: break
+            latest = a
+        }
+        if (latest != null) onAxes(latest)
+    }
+
+    private fun onPadKey(e: KeyEvt) {
+        val btn = PadMap.key(e.code) ?: return
+        padConnected = true
+        padDriving = true
+        val hold = btn == PadMap.Btn.LEFT || btn == PadMap.Btn.RIGHT || btn == PadMap.Btn.GUN ||
+            btn == PadMap.Btn.GAS || btn == PadMap.Btn.BRAKE || btn == PadMap.Btn.OK || btn == PadMap.Btn.BACK
+        if (e.repeat && !hold) return
+        if (tipsOpen && screen == Screen.RACE) {
+            if (e.down && !e.repeat && (btn == PadMap.Btn.OK || btn == PadMap.Btn.PAUSE || btn == PadMap.Btn.BACK)) dismissTips()
+            return
+        }
+        if (screen == Screen.RACE) {
+            if (btn == PadMap.Btn.PAUSE) {
+                if (e.down && !e.repeat) screen = Screen.PAUSED
+                return
+            }
+            val name = PadMap.raceHold(btn) ?: return
+            setPad(name, e.down)
+            return
+        }
+        if (!e.down || e.repeat) return
+        when (btn) {
+            PadMap.Btn.UP, PadMap.Btn.LEFT -> moveMenu(-1)
+            PadMap.Btn.DOWN, PadMap.Btn.RIGHT -> moveMenu(1)
+            PadMap.Btn.OK, PadMap.Btn.GAS -> activateMenu()
+            PadMap.Btn.BACK, PadMap.Btn.BRAKE -> backAction?.invoke()
+            PadMap.Btn.PAUSE -> if (screen == Screen.PAUSED) screen = Screen.RACE
+            else -> {}
+        }
+    }
+
+    private fun onAxes(a: AxisEvt) {
+        val steer = PadMap.steer(a.x, a.hatX)
+        val gas = PadMap.pressed(a.gas)
+        val brake = PadMap.pressed(a.brake)
+        val moving = kotlin.math.abs(steer) > 0f || gas || brake || kotlin.math.abs(a.y) > 0.65f || kotlin.math.abs(a.hatY) > 0.5f
+        if (!moving && !padDriving) return
+        padConnected = true
+        if (moving) padDriving = true
+        if (tipsOpen && screen == Screen.RACE) return
+        if (screen == Screen.RACE) {
+            setPad("left", steer < 0f)
+            setPad("right", steer > 0f)
+            setPad("gas", gas)
+            setPad("brake", brake)
+            return
+        }
+        val dir = when {
+            a.hatY > 0.5f || a.y > 0.65f -> 1
+            a.hatY < -0.5f || a.y < -0.65f -> -1
+            else -> 0
+        }
+        if (dir != 0 && dir != stickMenu) moveMenu(dir)
+        stickMenu = dir
+    }
+
+    private fun moveMenu(dir: Int) {
+        if (buttons.isEmpty()) return
+        menuIndex = (menuIndex + dir + buttons.size) % buttons.size
+    }
+
+    private fun activateMenu() {
+        if (buttons.isEmpty()) return
+        buttons[menuIndex.coerceIn(0, buttons.lastIndex)].second.invoke()
     }
 
     // ---------------- sound ----------------
@@ -1527,6 +1943,33 @@ class Game(private val context: Context, private val activity: Activity?) {
         current <= 50 -> 25
         current <= 75 -> 50
         else -> 75
+    }
+
+    /** One tick as each of 3, 2, 1 appears, and the GO tone when that word appears. The voice speaks with it. */
+    private fun cueCountdown(r: Race) {
+        val mark = Countdown.mark(r.countdown)
+        if (mark < 0 || mark == lastCd) return
+        lastCd = mark
+        if (inBackground || !save.sound || save.sfxVolume <= 0) return
+        val vol = save.sfxVolume.coerceIn(0, 100) / 100f
+        sfx.playCountdown(mark == 0, vol)
+        val call = Announcer.countdown(mark)
+        if (call != null) voice.countdown(call, Announcer.voiceOf(save.voice), vol)
+    }
+
+    private fun voiceVol(): Float =
+        if (save.sound && !inBackground) save.sfxVolume.coerceIn(0, 100) / 100f else 0f
+
+    /** Final lap, and a hurry call if the player is last when that lap starts. */
+    private fun noteRaceCalls(r: Race) {
+        val p = r.player
+        if (p.lap != lapHeard && Announcer.isFinalLapStart(p.lap, C.LAPS)) {
+            val choice = Announcer.voiceOf(save.voice)
+            val vol = voiceVol()
+            voice.offer(Call.FINAL_LAP, choice, vol)
+            if (r.rank(p) >= r.racers.size) voice.offer(Call.HURRY, choice, vol)
+        }
+        lapHeard = p.lap
     }
 
     fun beep(volume: Int, durationMs: Int) {

@@ -64,8 +64,8 @@ Settings (device-local, not part of cloud save):
 
 ## Sound effects
 
-`SoundPool` loads every candidate at startup (`SfxMap.allFiles`, 30 OGG files,
-about 600 KB). Variant **a** is the shipped choice for each one-shot slot and
+`SoundPool` loads every candidate at startup (`SfxMap.allFiles`, 32 OGG files).
+Variant **a** is the shipped choice for each one-shot slot and
 for the engine. Variants **b** and **c** stay in the APK. Swap one by editing
 a single entry in `SfxMap.DEFAULT` (or `SfxMap.ENGINE` for the loop) in
 `SfxLogic.kt`. A missing file stays silent.
@@ -74,7 +74,7 @@ Sources and licenses are in [CREDITS.md](CREDITS.md). Every file is CC0.
 
 | Slot | Default file | Also bundled | Triggers |
 |---|---|---|---|
-| Boost | `sfx_booster_a.ogg` | `_b`, `_c` | Player drives over a **Speed** pad. There is no separate boost button. Also plays the pickup sound. |
+| Boost | `sfx_booster_a.ogg` | `_b`, `_c` | BST button, and a **Speed** pad. The pad also plays the pickup sound. |
 | Engine loop | `sfx_ship_accel_loop_a.ogg` | `_b`, `_c` | After GO, while the player's ship is alive. Loops (`loop = -1`). Pitch and volume rise with speed, and rise again while a boost is active. Only the player's engine loops. Stops on pause, finish, destroy, or quit. |
 | Pickup | `sfx_powerup_pickup_a.ogg` | `_b`, `_c` | Any power-up the player collects (shield, reflect, speed, repair, ammo, missile, mine). |
 | Gun fire | per ship, below | `sfx_gun_fire_{a,b,c}.ogg` | `Race.fireGun` — the player's held GUN button and AI gun bursts. |
@@ -84,6 +84,8 @@ Sources and licenses are in [CREDITS.md](CREDITS.md). Every file is CC0.
 | Missile hit | `sfx_missile_hit_a.ogg` | `_b`, `_c` | A guided missile connects, plus the explosion. Player or AI. |
 | Rocket hit | `sfx_rocket_hit_a.ogg` | `_b`, `_c` | A rocket connects, plus the explosion. Player or AI. |
 | Mine hit | `sfx_prox_mine_hit_a.ogg` | `_b`, `_c` | A dropped mine detonates when a ship (player or AI) drives into it. |
+| Countdown tick | `sfx_countdown_tick.ogg` | — | One short ping as the on-screen **3**, **2**, and **1** each appear. Same file and pitch every second. |
+| Countdown GO | `sfx_countdown_go.ogg` | — | A different, longer tone when **GO!** appears. Race music starts as that word ends and the countdown hits 0. |
 
 The three engine loops are about 4.65 s with a crossfaded seam. `SoundPool`
 changes the playback rate with speed (about 0.72 at a standstill, up to about
@@ -101,6 +103,39 @@ no separate pit file. Only the local player is audible.
 | Shield full | `sfx_powerup_pickup_b.ogg` | One-shot chime on the frame the strip tops the shield off. Gain `SfxMap.PIT_FULL_GAIN` (0.88), rate `SfxMap.PIT_FULL_RATE` (1.28), higher than the pickup blip (`sfx_powerup_pickup_a` at rate 1). |
 
 The hum does not play if the shield is already full, and the chime does not play for a shield that was already full. Neither sound is tied to hull.
+
+### Countdown
+
+`sfx_countdown_tick` and `sfx_countdown_go` are the lights. Replace either file in `assets/sfx/` to change the tone. The tick is a short gun sample pitched up (`SfxMap.COUNTDOWN_TICK_RATE` 1.45). GO is a rocket impact pitched up (`SfxMap.COUNTDOWN_GO_RATE` 1.20). Both follow the SFX mute and the SFX volume. The weapon-cycle click is still the small built-in beep.
+
+The announcer speaks the same numbers, under the ping. See [Announcer](#announcer).
+
+### Barrier
+
+A scrape, a crash, and a destroyed ship reuse clips that are already loaded. There is no extra file.
+
+| Event | Slot | File |
+|---|---|---|
+| Scrape | `RaceSfx.SCRAPE` | `sfx_gun_bullet_hit` (variant A) |
+| Crash | `RaceSfx.CRASH` | `sfx_rocket_hit` (variant A) |
+| Destroyed | `RaceSfx.EXPLODE` | `sfx_prox_mine_hit` (variant A) |
+
+### Announcer
+
+Clips live in `app/src/main/assets/sfx/announcer/` (`vo_<voice>_<line>.ogg`). This build includes Kenney's male and female lines (see [CREDITS.md](CREDITS.md)). `vo_robot_one` through `vo_robot_five`, `vo_robot_go`, `vo_rockk_turbo`, and `vo_rockk_victory` play when those files are added to the same folder. Settings **ANNOUNCER** cycles Robot, Female, Male, and Off. Robot is the default. Off, the SFX mute, and SFX volume 0 all silence the voice. Music ducks to `Announcer.DUCK` (0.55) while a line is speaking. Two lines never play at once: the lights replace whatever is speaking, other calls keep one queued line, and a boost line is dropped if anything is already speaking.
+
+| Call | When | Robot | Female / Male |
+|---|---|---|---|
+| three, two, one, go | With the on-screen numbers and the countdown ping | `vo_robot_*` | `vo_kenney_female_*` / `vo_kenney_male_*` |
+| final_round | The player starts the last lap | male Kenney clip | that voice |
+| you_win | Player finishes in 1st. `congratulations` if `you_win` is missing | male Kenney clip | that voice |
+| you_lose | Player finishes outside 1st. `game_over` if `you_lose` is missing | male Kenney clip | that voice |
+| new_highscore | Player sets a best lap, including the first one | male Kenney clip | that voice |
+| power_up | Player collects a power-up. Silent again for 8 seconds | male Kenney clip | that voice |
+| hurry_up | Player is last when the final lap starts. Queued behind final_round | male Kenney clip | that voice |
+| turbo | Player boost (button or speed pad), at most every 18 seconds, and only if nothing is speaking | `vo_rockk_turbo` (or `nitro`) | same Rockk clip |
+
+Rockk's countdown clip is not used. Ready and set are not played: the lights start on 3, and the words stay locked to that clock. AI ships are not announced.
 
 ### Per-ship guns
 
@@ -152,9 +187,8 @@ ships, then played from `Game.drainSfx`. In multiplayer, a shot that connects
 with a remote ship plays on the shooter's device; the victim's device plays it
 again when that device applies the damage.
 
-A reflected shot does not play a hit until it hits someone. The countdown
-beeps (3, 2, 1, GO) and the weapon-cycle click are still the small built-in
-tones, and they follow the same SFX mute and volume.
+A reflected shot does not play a hit until it hits someone. The weapon-cycle
+click is still the small built-in tone, and it follows the same SFX mute and volume.
 
 Settings:
 
@@ -166,13 +200,11 @@ with `autoResume()` on return, and `release()`d in `onDestroy`.
 
 ## Not hooked
 
-These were not in the slot list, so they stay silent (the countdown still beeps,
-as above):
+These stay silent:
 
 - Dropping a mine (only the detonation has a slot)
 - Reflect
 - Brake
-- Ship destroyed
 - Steering
 
-There is no separate booster control. Boost is the on-track Speed power-up.
+Boost is the BST button and the on-track Speed pad. Both play the boost slot. A destroyed ship plays the explosion slot above, then respawns at the start of the lap it was on.

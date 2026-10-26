@@ -10,7 +10,8 @@ package com.denoya.xenorush
 enum class SfxVariant(val suffix: String) { A("a"), B("b"), C("c") }
 
 enum class RaceSfx {
-    BOOST, PICKUP, GUN, MISSILE, ROCKET, BULLET_HIT, MISSILE_HIT, ROCKET_HIT, MINE_HIT
+    BOOST, PICKUP, GUN, MISSILE, ROCKET, BULLET_HIT, MISSILE_HIT, ROCKET_HIT, MINE_HIT,
+    SCRAPE, CRASH, EXPLODE
 }
 
 /** One race event, plus who made the sound so mixing can scale it. */
@@ -61,6 +62,17 @@ object SfxMap {
     const val PIT_FULL_GAIN = 0.88f
     const val PIT_FULL_RATE = 1.28f
 
+    /**
+     * Lights. Replace the files in assets/sfx to change the countdown.
+     * Tick is the short gun sample, pitched up. GO is the rocket impact, pitched up and a little longer.
+     */
+    const val COUNTDOWN_TICK = "sfx_countdown_tick"
+    const val COUNTDOWN_GO = "sfx_countdown_go"
+    const val COUNTDOWN_TICK_GAIN = 0.90f
+    const val COUNTDOWN_TICK_RATE = 1.45f
+    const val COUNTDOWN_GO_GAIN = 0.95f
+    const val COUNTDOWN_GO_RATE = 1.20f
+
     /** Second ping of a bullet hit, played [SfxMix.BULLET_TINK_GAP_S] later. */
     val BULLET_TINK_SECOND = SfxVariant.B
 
@@ -76,15 +88,22 @@ object SfxMap {
         RaceSfx.MISSILE_HIT -> "sfx_missile_hit_${variant.suffix}"
         RaceSfx.ROCKET_HIT -> "sfx_rocket_hit_${variant.suffix}"
         RaceSfx.MINE_HIT -> "sfx_prox_mine_hit_${variant.suffix}"
+        RaceSfx.SCRAPE -> "sfx_gun_bullet_hit_${variant.suffix}"
+        RaceSfx.CRASH -> "sfx_rocket_hit_${variant.suffix}"
+        RaceSfx.EXPLODE -> "sfx_prox_mine_hit_${variant.suffix}"
     }
 
     fun engineFile(variant: SfxVariant = ENGINE): String = "sfx_ship_accel_loop_${variant.suffix}"
 
     /** Every bundled candidate, so the loader can keep them all resident. */
     fun allFiles(): List<String> {
-        val shots = RaceSfx.entries.flatMap { slot -> SfxVariant.entries.map { file(slot, it) } }
+        val bundled = listOf(
+            RaceSfx.BOOST, RaceSfx.PICKUP, RaceSfx.GUN, RaceSfx.MISSILE, RaceSfx.ROCKET,
+            RaceSfx.BULLET_HIT, RaceSfx.MISSILE_HIT, RaceSfx.ROCKET_HIT, RaceSfx.MINE_HIT
+        )
+        val shots = bundled.flatMap { slot -> SfxVariant.entries.map { file(slot, it) } }
         val loops = SfxVariant.entries.map { engineFile(it) }
-        return shots + loops
+        return shots + loops + listOf(COUNTDOWN_TICK, COUNTDOWN_GO)
     }
 }
 
@@ -139,11 +158,13 @@ object SfxMix {
         RaceSfx.MISSILE, RaceSfx.ROCKET -> 2
         RaceSfx.MISSILE_HIT, RaceSfx.ROCKET_HIT, RaceSfx.MINE_HIT -> 2
         RaceSfx.BOOST, RaceSfx.PICKUP -> 2
+        RaceSfx.SCRAPE -> 2
+        RaceSfx.CRASH, RaceSfx.EXPLODE -> 2
     }
 
     /** How long a play still counts as "sounding" for the cap above. */
     fun windowS(slot: RaceSfx): Float = when (slot) {
-        RaceSfx.GUN, RaceSfx.BULLET_HIT -> 0.14f
+        RaceSfx.GUN, RaceSfx.BULLET_HIT, RaceSfx.SCRAPE -> 0.14f
         RaceSfx.PICKUP, RaceSfx.BOOST -> 0.35f
         else -> 0.90f
     }
@@ -172,7 +193,8 @@ object SfxMix {
         RaceSfx.GUN -> 0.48f
         RaceSfx.BULLET_HIT -> 0.55f
         RaceSfx.MISSILE, RaceSfx.ROCKET -> 0.62f
-        RaceSfx.MISSILE_HIT, RaceSfx.ROCKET_HIT, RaceSfx.MINE_HIT -> 0.58f
+        RaceSfx.MISSILE_HIT, RaceSfx.ROCKET_HIT, RaceSfx.MINE_HIT, RaceSfx.CRASH, RaceSfx.EXPLODE -> 0.58f
         RaceSfx.BOOST, RaceSfx.PICKUP -> 0.80f
+        RaceSfx.SCRAPE -> 0.50f
     }
 }

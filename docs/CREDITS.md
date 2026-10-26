@@ -52,3 +52,24 @@ Engine loops were trimmed to ~4.65 s with a 0.35 s equal-power crossfade so they
 | sfx_prox_mine_hit_a.ogg | Prox mine hit | lowFrequency_explosion_000.ogg | K-SF | Kenney | CC0 |
 | sfx_prox_mine_hit_b.ogg | Prox mine hit | Chunky Explosion.mp3 (first 3.5 s, faded) | OGA-CHK | Joth | CC0 |
 | sfx_prox_mine_hit_c.ogg | Prox mine hit | layered: impactPlate_heavy_000.ogg (K-IM) + cannon_02.ogg (OGA-BANG) + lowFrequency_explosion_000.ogg (K-SF) | K-IM, OGA-BANG, K-SF | Kenney, rubberduck | CC0 |
+
+## Announcer
+
+Kenney Voiceover Pack (https://kenney.nl/assets/voiceover-pack, also https://opengameart.org/content/voiceover-pack-40-lines). License CC0 1.0. Credit is not required. Male voice: Jeffrey M. Smith. Female voice: Giselle. Pack by Kenney Vleugels (www.kenney.nl).
+
+The race calls use these lines, renamed into `app/src/main/assets/sfx/announcer/`:
+
+| Bundled file | Source file |
+|---|---|
+| `vo_kenney_male_one.ogg` … `five.ogg`, `go`, `ready`, `set` | `Male/1.ogg` … `Male/5.ogg`, `go.ogg`, `ready.ogg`, `set.ogg` |
+| `vo_kenney_male_final_round.ogg` | `Male/final_round.ogg` |
+| `vo_kenney_male_you_win.ogg` | `Male/you_win.ogg` |
+| `vo_kenney_male_you_lose.ogg` | `Male/you_lose.ogg` |
+| `vo_kenney_male_game_over.ogg` | `Male/game_over.ogg` |
+| `vo_kenney_male_new_highscore.ogg` | `Male/new_highscore.ogg` |
+| `vo_kenney_male_power_up.ogg` | `Male/power_up.ogg` |
+| `vo_kenney_male_hurry_up.ogg` | `Male/hurry_up.ogg` |
+| `vo_kenney_male_congratulations.ogg` | `Male/congratulations.ogg` |
+| `vo_kenney_female_*` | the same names under `Female/` |
+
+`vo_robot_*` and `vo_rockk_*` are recognized by the loader. They are not in this build: the prepared `announcer_pack.zip` was not in the workspace. Drop those files in the same folder to enable the robot countdown and the Rockk turbo line.

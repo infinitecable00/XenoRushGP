@@ -134,14 +134,15 @@ class MpFirebase(app: FirebaseApp) : MpBackend {
         val u = uid(); if (u.isEmpty()) return
         db.getReference("roomState").child(roomId).child(u).setValue(mapOf(
             "z" to s.z.toDouble(), "lap" to s.lap, "x" to s.x.toDouble(), "sp" to s.speed.toDouble(), "en" to s.energy,
-            "al" to s.alive, "fin" to s.finished, "fm" to s.finishMs, "sh" to s.shield, "rf" to s.reflect, "bo" to s.boost, "t" to s.t))
+            "al" to s.alive, "fin" to s.finished, "fm" to s.finishMs, "sh" to s.shield, "rf" to s.reflect, "bo" to s.boost,
+            "t" to s.t, "rs" to s.respawning))
     }
 
     private fun parseState(s: DataSnapshot): NetState? = try {
         fun d(k: String) = (s.child(k).value as? Number)?.toDouble() ?: 0.0
         fun b(k: String) = s.child(k).getValue(Boolean::class.java) ?: false
         NetState(d("z").toFloat(), d("lap").toInt(), d("x").toFloat(), d("sp").toFloat(), d("en").toInt(),
-            b("al"), b("fin"), d("fm").toLong(), d("sh").toInt(), b("rf"), b("bo"), d("t").toLong())
+            b("al"), b("fin"), d("fm").toLong(), d("sh").toInt(), b("rf"), b("bo"), d("t").toLong(), b("rs"))
     } catch (_: Exception) { null }
 
     override fun watchStates(roomId: String, onState: (String, NetState?) -> Unit) {

@@ -176,6 +176,42 @@ fun main() {
         }
         check("a full shield does not chime again", full.shield == Arms.MAX_SHIELD && full.energy == 15 && !full.shieldJustFull && !rf.events.contains("SHIELD FULL") && !full.pitCharging)
     }
+    check("boost level 1 is +30% and the hard cap is +50%",
+        Boost.bonusFor(1) == 0.30f && Boost.multiplier(1) == 1.30f &&
+            Boost.bonusFor(Boost.MAX_LEVEL) == Boost.HARD_MAX_BONUS && Boost.HARD_MAX_BONUS == 0.50f &&
+            (2..Boost.MAX_LEVEL).all { Boost.bonusFor(it) in Boost.bonusFor(it - 1)..Boost.HARD_MAX_BONUS })
+    run {
+        val t = tracks[0]
+        val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val race = Race(t, listOf(p), 0)
+        race.countdown = 0f
+        p.z = 3000f
+        p.x = 0f
+        p.speed = p.maxSpeed()
+        check("button boost starts", race.requestBoost(p) && p.boostT == Boost.DURATION_S && p.boostArmed)
+        check("button boost does not stack a second press", !race.requestBoost(p))
+        val gas = PlayerInput().apply { gas = true }
+        repeat(30) { race.update(1f / 60f, gas, 0L) }
+        val limit = p.maxSpeed() * p.boostMultiplier() * 1.2f
+        check("boost stays inside the shared cap", p.boostT > 0f && p.speed > p.maxSpeed() && p.speed <= limit + 1f)
+        var guard = 0
+        while (p.boostT > 0f && guard < 400) { race.update(1f / 60f, gas, 0L); guard++ }
+        check("boost then recharges for 10 seconds", p.boostT == 0f && kotlin.math.abs(p.boostCd - Boost.COOLDOWN_S) < 0.08f && !race.requestBoost(p))
+        val pad = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val rp = Race(t, listOf(pad), 0)
+        rp.countdown = 0f
+        rp.applyPickup(pad, PowerUpType.SPEED)
+        check("speed pad shares the cap and skips the button cooldown",
+            pad.boostT == Boost.DURATION_S && !pad.boostArmed && pad.boostCd == 0f && pad.boostMultiplier() == Boost.multiplier(pad.vs.b))
+        val ai = Racer(Catalog.VEHICLES[3], VehicleState(true, 1, 1, 1, 1), false, 1f)
+        val ra = Race(t, listOf(ai, Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)), 0)
+        ra.countdown = 0f
+        ai.z = 3000f
+        ai.x = 0f
+        ai.speed = ai.maxSpeed()
+        ra.update(1f / 60f, PlayerInput(), 0L)
+        check("AI boosts on a straight", ai.boostT > 0f && !PitStrip.onStrip(t, ai.x, ai.z))
+    }
     run {
         var took = 0
         repeat(12) { n ->
@@ -398,6 +434,8 @@ fun main() {
     runWeaponTests(::check)
     runMusicTests(::check)
     runMirrorTests(::check)
+    runGraphicsTests(::check)
+    runAnnouncerTests(::check)
 
     println("\n$pass passed, $fail failed")
     if (fail > 0) kotlin.system.exitProcess(1)

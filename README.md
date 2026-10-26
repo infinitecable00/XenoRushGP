@@ -213,7 +213,7 @@ and never commit it.
 ```
 app/src/main/java/com/denoya/xenorush/
 ├── MainActivity.kt   — fullscreen host activity
-├── GameView.kt       — SurfaceView + 60fps game loop
+├── GameView.kt       — SurfaceView + 60 FPS game loop
 ├── Game.kt           — state machine, menus, shop, payment flow, race lifecycle
 ├── Render.kt         — pseudo-3D renderer, HUD, touch controls
 ├── Race.kt           — race simulation: physics, AI, power-ups, weapons, laps
@@ -230,7 +230,15 @@ app/src/main/java/com/denoya/xenorush/
 ├── MpSession.kt      — multiplayer matchmaking, host logic, race link (pure Kotlin)
 ├── MpFirebase.kt     — multiplayer transport on Firebase Realtime Database
 ├── Xrp.kt            — XRPL JSON-RPC client + payment verification
-└── Util.kt           — math helpers, constants
+├── Util.kt           — math helpers, constants
+├── Graphics.kt       — frame cap, quality tiers, FPS meter
+├── Feel.kt           — haptic kinds, gamepad map, background pause rule
+├── Haptics.kt        — vibrator pulses
+├── CrashLog.kt       — local crash file and share sheet
+├── DeviceInfo.kt     — RAM / CPU / GPU probe for Max Graphics
+├── Impact.kt         — wall scrape, crash, and lap respawn
+├── Announcer.kt      — voice lines and the one-at-a-time queue
+└── AnnouncerPlayer.kt — announcer SoundPool
 ```
 
 ## Controls
@@ -238,11 +246,57 @@ app/src/main/java/com/denoya/xenorush/
 - Bottom-left: ◀ ▶ steering
 - Bottom-right: GAS (large), BRK (brake), GUN (hold to auto-fire), special (fires the
   selected rocket / missile / mine), WPN (cycles the special weapon)
+- Left side, above the steer arrows: BST. Press for a 3 second boost at +30% top speed,
+  then a 10 second recharge. The ring drains while boosting and fills again while it
+  recharges. A speed pad uses the same +30% cap, so the two do not stack. A future
+  booster upgrade can raise that cap up to +50% (`Boost.HARD_MAX_BONUS`).
 - Tap the pause button (top right) during a race to pause
+
+Settings adds these device-local toggles:
+
+- **FPS COUNTER** — off until you turn it on. A debug build turns it on the first launch.
+  During a race it sits just under the pause button and shows FPS and frame time.
+- **MAX GRAPHICS** — off by default. Off uses the safe picture and a fixed 60 FPS cap
+  (`FrameCap.TARGET_FPS`), including on a 90 Hz screen. On reads RAM, CPU cores, max clock,
+  performance class, and the GPU name, picks the highest quality tier that should hold a
+  smooth rate, and aims at the fastest refresh the panel and the phone can both sustain
+  (90, 120, or 240). If the race stays under that rate, quality steps down first and the
+  frame target steps down after that. There is no tier picker.
+- **HAPTICS** — on by default. A short pulse on your boost and pickups, a sharper one when
+  you are hit, and a heavier one for a rocket, missile, or mine on you (a lighter pulse
+  when a blast is merely nearby).
+- **SHOW TIPS AGAIN** — the first single-player race explains BST, weapons, and the recharge
+  strip. Got it saves that you have seen them.
+- **SHARE CRASH LOG** — the last crash is stored on the device (no Firebase). This shares it.
+- **ANNOUNCER** — Robot, Female, Male, or Off. Robot is the default. It speaks the lights
+  with the countdown pings, the final lap, a win or a loss, a new best lap, and pickups.
+  Robot uses the male voice for the race calls. Music dips while a line plays.
+
+Tiers are Safe, Medium, High, and Max (draw distance 240, native resolution, glow).
+
+A Samsung Galaxy A16 5G (Dimensity 6300, Mali-G57, 8 cores at 2.4 GHz, 4–8 GB, 90 Hz)
+with Max Graphics on starts at **High** and **90 FPS**. If the CPU clock cannot be read it
+starts at Medium and 60 FPS. Max Graphics off is Safe and 60 FPS.
+
+A gamepad uses the usual layout: left stick or D-pad steers, A or R2 accelerates, B or L2
+brakes, R1 fires the gun, Y fires the special, X cycles weapons, L1 is BST, Start pauses.
+In menus the D-pad moves and A activates. Touch controls hide while the pad is in use and
+come back on the next touch. Leaving the app pauses a single-player race. An online race
+keeps running.
+
+A shallow wall hit is a scrape: speed drops (a little more when the angle is steeper),
+3 shield, a short sound. A steep hit above 4500 speed is a crash: speed falls to 15%,
+steering locks for 1 second, 28 shield and 16 hull. Hull zero waits 1.75 seconds, then
+the ship returns to the start of that same lap with hull and shield full and 2 seconds
+of invulnerability. The race clock keeps going. The lap counter does not move.
+Thresholds live in `Impact`.
+
+The lights play `sfx_countdown_tick` on 3, 2, and 1, then `sfx_countdown_go` on GO.
+Race music starts when the countdown reaches 0.
 
 ## Verified by automated tests
 
-A JVM test harness (copies of the pure-Kotlin files) passes 229/229 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
+A JVM test harness (copies of the pure-Kotlin files) passes 301/301 checks. v1.6 added menu/race music selection and the sound-effect cues (boost, pickup, gun, rocket, missile, bullet/rocket/missile/mine hits). v1.5 added: the rearview mirror camera (cars behind
 show up centred, left/right the right way round like a real mirror, closer cars bigger,
 nothing ahead or out of range, wrap-around at the finish line, bends behind you, farthest-first
 draw order). v1.4 added: music shuffle (each song once per cycle, no

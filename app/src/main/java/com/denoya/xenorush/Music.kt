@@ -26,6 +26,7 @@ class MusicPlayer(private val context: Context) {
     private var pending = MusicCue.NONE
     private var level = 0f
     private var gain = 1f
+    private var duck = 1f
     private var userPaused = false
     private var menuFailed = false
     private val badRace = HashSet<String>()
@@ -45,8 +46,9 @@ class MusicPlayer(private val context: Context) {
      * @param enabled master music toggle
      * @param volume 0..1 user music volume (100% still caps at [MusicConfig.VOLUME])
      */
-    fun update(cue: MusicCue, suspended: Boolean, enabled: Boolean, volume: Float, dt: Float) = synchronized(lock) {
+    fun update(cue: MusicCue, suspended: Boolean, enabled: Boolean, volume: Float, dt: Float, duck: Float = 1f) = synchronized(lock) {
         gain = volume.coerceIn(0f, 1f)
+        this.duck = duck.coerceIn(0f, 1f)
         val want = if (enabled) cue else MusicCue.NONE
         if (suspended) {
             if (phase == Phase.FADING) {
@@ -173,7 +175,7 @@ class MusicPlayer(private val context: Context) {
     }
 
     private fun applyVol() {
-        val v = (level.coerceIn(0f, 1f) * gain * MusicConfig.VOLUME).coerceIn(0f, 1f)
+        val v = (level.coerceIn(0f, 1f) * gain * duck * MusicConfig.VOLUME).coerceIn(0f, 1f)
         mp?.let { p -> safe { p.setVolume(v, v) } }
     }
 

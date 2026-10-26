@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class VehicleState(var owned: Boolean, var e: Int, var a: Int, var g: Int, var w: Int,
-                        var r: Int = 1, var m: Int = 1, var n: Int = 1) {
+                        var r: Int = 1, var m: Int = 1, var n: Int = 1, var b: Int = 1) {
     fun get(stat: String): Int = when (stat) { "e" -> e; "a" -> a; "g" -> g; "r" -> r; "m" -> m; "n" -> n; else -> w }
     fun set(stat: String, v: Int) { when (stat) { "e" -> e = v; "a" -> a = v; "g" -> g = v; "r" -> r = v; "m" -> m = v; "n" -> n = v; else -> w = v } }
     fun inc(stat: String) = set(stat, get(stat) + 1)
@@ -38,6 +38,18 @@ class SaveData {
     var sfxVolume: Int = 100
     /** 0..100. Scales music when [music] is on. 100 is [MusicConfig.VOLUME]. */
     var musicVolume: Int = 100
+    /** Race FPS readout. Off until the player turns it on. Debug builds set it on first launch. */
+    var showFps: Boolean = false
+    /** True once [showFps] has been chosen (saved toggle, or the debug first-launch default). */
+    var showFpsSet: Boolean = false
+    /** On: auto quality for a steady 60 FPS, with step-down. Off: [Graphics.Tier.SAFE]. */
+    var maxGraphics: Boolean = false
+    /** Vibration on boost, hits, nearby explosions, and pickups. */
+    var haptics: Boolean = true
+    /** First-race tips have been dismissed. */
+    var tipsSeen: Boolean = false
+    /** Announcer voice: robot, female, male, or off. Robot is the default. */
+    var voice: String = "robot"
 
     fun vehicleState(id: Int): VehicleState = vehicles.getOrPut(id) {
         VehicleState(id < Catalog.FREE_VEHICLES, 1, 1, 1, 1)
@@ -73,7 +85,7 @@ object SaveCodec {
         val vs = JSONObject()
         for ((k, v) in sd.vehicles) {
             vs.put(k.toString(), JSONObject().put("owned", v.owned).put("e", v.e)
-                .put("a", v.a).put("g", v.g).put("w", v.w).put("r", v.r).put("m", v.m).put("n", v.n))
+                .put("a", v.a).put("g", v.g).put("w", v.w).put("r", v.r).put("m", v.m).put("n", v.n).put("b", v.b))
         }
         json.put("vehicles", vs)
         val ts = JSONObject()
@@ -91,7 +103,9 @@ object SaveCodec {
             }
             json.put("settings", JSONObject().put("mainnet", sd.mainnet)
                 .put("merchant", sd.merchantAddress).put("sound", sd.sound).put("music", sd.music)
-                .put("sfxVolume", sd.sfxVolume).put("musicVolume", sd.musicVolume))
+                .put("sfxVolume", sd.sfxVolume).put("musicVolume", sd.musicVolume)
+                .put("showFps", sd.showFps).put("showFpsSet", sd.showFpsSet).put("maxGraphics", sd.maxGraphics)
+                .put("haptics", sd.haptics).put("tipsSeen", sd.tipsSeen).put("voice", sd.voice))
         }
         return json.toString()
     }
@@ -112,7 +126,7 @@ object SaveCodec {
                     val o = vs.getJSONObject(k)
                     fun lv(n: String) = o.optInt(n, 1).coerceIn(1, 10)
                     sd.vehicles[id] = VehicleState(o.optBoolean("owned", false) || id < Catalog.FREE_VEHICLES,
-                        lv("e"), lv("a"), lv("g"), lv("w"), lv("r"), lv("m"), lv("n"))
+                        lv("e"), lv("a"), lv("g"), lv("w"), lv("r"), lv("m"), lv("n"), lv("b"))
                 }
             }
             json.optJSONObject("tracks")?.let { ts ->
@@ -136,6 +150,12 @@ object SaveCodec {
                 sd.music = st.optBoolean("music", true)
                 sd.sfxVolume = st.optInt("sfxVolume", 100).coerceIn(0, 100)
                 sd.musicVolume = st.optInt("musicVolume", 100).coerceIn(0, 100)
+                sd.showFps = st.optBoolean("showFps", false)
+                sd.showFpsSet = st.optBoolean("showFpsSet", false)
+                sd.maxGraphics = st.optBoolean("maxGraphics", false)
+                sd.haptics = st.optBoolean("haptics", true)
+                sd.tipsSeen = st.optBoolean("tipsSeen", false)
+                sd.voice = Announcer.wire(Announcer.voiceOf(st.optString("voice", "robot")))
             }
         } catch (_: Exception) {
             return SaveData()
@@ -163,6 +183,7 @@ object SaveMerge {
             val a = local.vehicleState(id); val b = remote.vehicleState(id)
             val v = VehicleState(a.owned || b.owned, 1, 1, 1, 1)
             for (st in Catalog.STATS) v.set(st, maxOf(a.get(st), b.get(st)))
+            v.b = maxOf(a.b, b.b)
             out.vehicles[id] = v
         }
         for (id in 0 until 30) {
@@ -175,6 +196,8 @@ object SaveMerge {
         out.pendingInvoice = local.pendingInvoice
         out.mainnet = local.mainnet; out.merchantAddress = local.merchantAddress; out.sound = local.sound; out.music = local.music
         out.sfxVolume = local.sfxVolume; out.musicVolume = local.musicVolume
+        out.showFps = local.showFps; out.showFpsSet = local.showFpsSet; out.maxGraphics = local.maxGraphics
+        out.haptics = local.haptics; out.tipsSeen = local.tipsSeen; out.voice = local.voice
         return out
     }
 }

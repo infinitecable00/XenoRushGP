@@ -31,7 +31,8 @@ data class NetState(
     val z: Float, val lap: Int, val x: Float, val speed: Float,
     val energy: Int, val alive: Boolean, val finished: Boolean, val finishMs: Long,
     val shield: Int, val reflect: Boolean, val boost: Boolean,
-    val t: Long                         // sender's server-time estimate
+    val t: Long,                        // sender's server-time estimate
+    val respawning: Boolean = false     // hull zero, waiting to reappear on this lap
 )
 
 /** Network transport. All callbacks may arrive on any thread; MpSession queues them. */
@@ -217,6 +218,7 @@ class MpRaceLink(
             r.shield = s.shield.coerceIn(0, Arms.MAX_SHIELD)
             r.reflectT = if (s.reflect) 1f else 0f
             r.boostT = if (s.boost) 1f else 0f
+            r.respawnT = if (!s.alive && s.respawning) 1f else 0f
         }
     }
 
@@ -227,7 +229,7 @@ class MpRaceLink(
         lastPublish = now
         val p = race.player
         backend.publishState(roomId, NetState(p.z, p.lap, p.x, p.speed, p.energy, p.alive, p.finished,
-            p.finishTimeMs, p.shield, p.reflectT > 0f, p.boostT > 0f, now))
+            p.finishTimeMs, p.shield, p.reflectT > 0f, p.boostT > 0f, now, p.respawnT > 0f))
     }
 
     /** Multiplayer standings: finishers by time, then by distance; destroyed racers last. */
@@ -237,5 +239,5 @@ class MpRaceLink(
         { -(it.lap * track.trackLength + it.z) }
     ))
 
-    fun allDone(): Boolean = race.racers.all { it.finished || !it.alive || it.uid in left }
+    fun allDone(): Boolean = race.racers.all { it.finished || it.uid in left || (!it.alive && it.respawnT <= 0f) }
 }

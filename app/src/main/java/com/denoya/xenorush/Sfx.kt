@@ -119,6 +119,18 @@ class SfxPlayer(context: Context) {
         }
     }
 
+    /** 3, 2, 1 share one tone. GO is a different file and pitch. */
+    fun playCountdown(go: Boolean, volume: Float) {
+        if (released || volume <= 0f) return
+        val file = if (go) SfxMap.COUNTDOWN_GO else SfxMap.COUNTDOWN_TICK
+        val gain = if (go) SfxMap.COUNTDOWN_GO_GAIN else SfxMap.COUNTDOWN_TICK_GAIN
+        val rate = if (go) SfxMap.COUNTDOWN_GO_RATE else SfxMap.COUNTDOWN_TICK_RATE
+        val id = ids[file] ?: return
+        if (!isReady(id)) return
+        val vol = (volume * gain).coerceIn(0f, 1f)
+        try { pool?.play(id, vol, vol, 2, 0, rate.coerceIn(0.5f, 2f)) } catch (_: Exception) {}
+    }
+
     /** One-shot when the recharge strip fills the shield. */
     fun playPitFull(volume: Float) {
         if (released || volume <= 0f) return
@@ -201,7 +213,7 @@ class SfxPlayer(context: Context) {
     private fun count(slot: RaceSfx): Int = live[slot]?.size ?: 0
 
     private fun priority(slot: RaceSfx): Int = when (slot) {
-        RaceSfx.MISSILE_HIT, RaceSfx.ROCKET_HIT, RaceSfx.MINE_HIT -> 3
+        RaceSfx.MISSILE_HIT, RaceSfx.ROCKET_HIT, RaceSfx.MINE_HIT, RaceSfx.CRASH, RaceSfx.EXPLODE -> 3
         RaceSfx.BULLET_HIT, RaceSfx.MISSILE, RaceSfx.ROCKET -> 2
         else -> 1
     }

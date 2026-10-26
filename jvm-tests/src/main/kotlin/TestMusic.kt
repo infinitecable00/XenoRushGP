@@ -88,7 +88,7 @@ fun runMusicTests(check: (String, Boolean) -> Unit) {
     check("sfx: variant a is the default", RaceSfx.entries.all { SfxMap.variant(it) == SfxVariant.A } && SfxMap.ENGINE == SfxVariant.A)
     check("sfx: default files", SfxMap.file(RaceSfx.BOOST, SfxVariant.A) == "sfx_booster_a" &&
         SfxMap.file(RaceSfx.MINE_HIT, SfxVariant.A) == "sfx_prox_mine_hit_a" && SfxMap.engineFile() == "sfx_ship_accel_loop_a")
-    check("sfx: all 30 candidates", SfxMap.allFiles().size == 30 && SfxMap.allFiles().toSet().size == 30)
+    check("sfx: all 32 candidates", SfxMap.allFiles().size == 32 && SfxMap.allFiles().toSet().size == 32)
     check("sfx: bullet tink is a second variant", SfxMap.BULLET_TINK_SECOND == SfxVariant.B && SfxMix.BULLET_TINK_GAP_S == 0.06f)
     check("sfx: one gun voice per ship", ShipGuns.TABLE.map { it.first } == Catalog.VEHICLES.map { it.name })
     check("sfx: gun voices are distinct", ShipGuns.TABLE.map { it.second.variant to it.second.rate }.toSet().size == ShipGuns.TABLE.size)
