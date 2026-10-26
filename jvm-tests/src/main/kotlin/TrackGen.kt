@@ -119,10 +119,11 @@ object TrackGen {
  * opening straight, the stretch just after the start/finish line.
  *
  * Every course begins with the same 80-segment straight, so the strip sits
- * on the same segments of every track. [REGEN_PER_SEC] is the tuning knob.
- * The strip is [LENGTH_SEGS] * [C.SEG_LEN] = 9,200 units long. At 10,000
- * units/s that is about 0.9 s and about 22 shield, under a quarter of
- * [Arms.MAX_SHIELD]. One drive through does not refill from empty.
+ * on the same segments of every track. Recharge follows distance along the
+ * lane, not time, and it never touches hull. [FULL_PASS_SHIELD] is the knob:
+ * driving the whole strip (9,200 units) grants that many shield points, at
+ * racing speed or any other speed. 100 matches [Arms.MAX_SHIELD], so an
+ * empty shield is full at the end of the lane.
  */
 object PitStrip {
     const val START_SEG = 10
@@ -130,14 +131,38 @@ object PitStrip {
     /** Road edge is 1.0. This sits just outside the rumble, still inside [C.MAX_LATERAL]. */
     const val CENTER_X = 1.58f
     const val HALF_WIDTH = 0.36f
-    const val REGEN_PER_SEC = 24f
-    /** Standing still does not charge. Crawling does, so a slow pass fills more. */
-    const val MIN_SPEED = 200f
+    /** Shield points for covering the entire strip. Does not heal hull. */
+    const val FULL_PASS_SHIELD = 100
     const val AI_SEEK_BELOW = 40
     const val AI_SEEK_CHANCE = 0.5f
     /** Segments before the strip where a seeking AI slides to the right lane. */
     const val APPROACH_SEGS = 50
     const val SHOULDER = 0.22f
+
+    fun lengthUnits(): Float = LENGTH_SEGS * C.SEG_LEN
+    fun zStart(): Float = START_SEG * C.SEG_LEN
+    fun zEnd(): Float = (START_SEG + LENGTH_SEGS) * C.SEG_LEN
+
+    /** World-units of [prevZ, newZ] that lie on the strip. Handles the lap wrap. */
+    fun distanceOnStrip(prevZ: Float, newZ: Float, trackLength: Int): Float {
+        val start = zStart()
+        val end = zEnd()
+        val len = trackLength.toFloat()
+        return if (newZ >= prevZ) {
+            spanOverlap(prevZ, newZ, start, end)
+        } else {
+            spanOverlap(prevZ, len, start, end) + spanOverlap(0f, newZ, start, end)
+        }
+    }
+
+    fun pointsFor(distance: Float): Float =
+        if (lengthUnits() <= 0f) 0f else distance / lengthUnits() * FULL_PASS_SHIELD
+
+    private fun spanOverlap(a0: Float, a1: Float, b0: Float, b1: Float): Float {
+        val lo = maxOf(a0, b0)
+        val hi = minOf(a1, b1)
+        return if (hi > lo) hi - lo else 0f
+    }
 
     fun mark(track: Track) {
         val end = (START_SEG + LENGTH_SEGS).coerceAtMost(track.segments.size)

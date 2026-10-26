@@ -448,7 +448,7 @@ class Renderer {
         }
         c.drawRect(ebX, ebY, ebX + ebW * clamp(pct, 0f, 1f), ebY + ebH, paint)
         val sbY = 14f * u
-        val onPit = player.onPit
+        val onPit = player.pitCharging
         textPaint.textSize = 2.9f * u
         textPaint.color = if (onPit) Color.HSVToColor(255, floatArrayOf((pitPhase * 360f) % 360f, 0.45f, 1f)) else Color.argb(235, 200, 210, 255)
         c.drawText(if (onPit) "RECHARGE ${player.shield}/${Arms.MAX_SHIELD}" else "SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - 0.9f * u, textPaint)

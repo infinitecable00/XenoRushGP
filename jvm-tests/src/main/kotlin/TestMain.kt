@@ -80,33 +80,67 @@ fun main() {
     println("      AI off-road count at end: $aiOff/${ais.size} (avg |x| = ${"%.2f".format(ais.map { kotlin.math.abs(it.x) }.average())})")
     check("AI stays on road", aiOff <= 2)
 
-    // recharge strip: a drive through fills some shield, not a full bar
+    // recharge strip: the whole lane refills shield, and never hull
     run {
         val t = tracks[0]
+        check("full strip distance grants a full shield",
+            PitStrip.pointsFor(PitStrip.lengthUnits()) == PitStrip.FULL_PASS_SHIELD.toFloat() &&
+                PitStrip.FULL_PASS_SHIELD == Arms.MAX_SHIELD &&
+                PitStrip.distanceOnStrip(PitStrip.zStart(), PitStrip.zEnd(), t.trackLength) == PitStrip.lengthUnits())
         val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
         val r = Race(t, listOf(p), 0)
         r.countdown = 0f
-        p.z = PitStrip.START_SEG * C.SEG_LEN + 30f
+        p.z = PitStrip.zStart() - 80f
         p.x = PitStrip.CENTER_X
         p.speed = 10000f
         p.shield = 0
+        p.energy = 40
         val gas = PlayerInput().apply { gas = true }
         var n = 0
-        while (n < 600 && PitStrip.onStrip(t, p.x, p.z)) {
+        while (n < 600 && p.z < PitStrip.zEnd() + 400f) {
             r.update(1f / 60f, gas, n * 16L)
             n++
         }
-        println("      pit pass gained ${p.shield} shield over $n frames")
-        check("pit pass recharges shield", p.shield > 0 && r.events.contains("RECHARGE"))
-        check("one pit pass does not fill an empty shield", p.shield < Arms.MAX_SHIELD / 2)
+        println("      pit pass shield=${p.shield} hull=${p.energy} frames=$n")
+        check("full pit pass fills an empty shield", p.shield == Arms.MAX_SHIELD && r.events.contains("RECHARGE") && r.events.contains("SHIELD FULL") && p.shieldJustFull)
+        check("pit pass does not heal hull", p.energy == 40)
+        val half = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val rh = Race(t, listOf(half), 0)
+        rh.countdown = 0f
+        half.z = PitStrip.zStart()
+        half.x = PitStrip.CENTER_X
+        half.speed = 10000f
+        half.shield = 0
+        half.energy = 70
+        var hn = 0
+        while (hn < 600 && half.z < PitStrip.zStart() + PitStrip.lengthUnits() / 2f) {
+            rh.update(1f / 60f, gas, 0L)
+            hn++
+        }
+        check("half the strip is a partial shield", half.shield in 40..60 && half.energy == 70 && !half.shieldJustFull)
         val off = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
         val r2 = Race(t, listOf(off), 0)
         r2.countdown = 0f
-        off.z = PitStrip.START_SEG * C.SEG_LEN + 30f
+        off.z = PitStrip.zStart() + 30f
         off.x = 0f
         off.speed = 10000f
+        off.energy = 55
         repeat(40) { r2.update(1f / 60f, gas, 0L) }
-        check("center of the road does not recharge", off.shield == 0 && !off.onPit)
+        check("center of the road does not recharge", off.shield == 0 && !off.onPit && off.energy == 55)
+        val full = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val rf = Race(t, listOf(full), 0)
+        rf.countdown = 0f
+        full.z = PitStrip.zStart() - 40f
+        full.x = PitStrip.CENTER_X
+        full.speed = 10000f
+        full.shield = Arms.MAX_SHIELD
+        full.energy = 15
+        var fn = 0
+        while (fn < 600 && full.z < PitStrip.zEnd() + 200f) {
+            rf.update(1f / 60f, gas, 0L)
+            fn++
+        }
+        check("a full shield does not chime again", full.shield == Arms.MAX_SHIELD && full.energy == 15 && !full.shieldJustFull && !rf.events.contains("SHIELD FULL") && !full.pitCharging)
     }
     run {
         var took = 0

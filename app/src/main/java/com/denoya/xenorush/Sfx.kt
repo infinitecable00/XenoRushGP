@@ -23,6 +23,7 @@ class SfxPlayer(context: Context) {
     private var engineId = 0
     private var engineStream = 0
     private var pitId = 0
+    private var pitFullId = 0
     private var pitStream = 0
     private var released = false
 
@@ -49,6 +50,7 @@ class SfxPlayer(context: Context) {
             }
             engineId = ids[SfxMap.engineFile()] ?: 0
             pitId = ids[SfxMap.PIT_LOOP] ?: 0
+            pitFullId = ids[SfxMap.PIT_FULL] ?: 0
         }
     }
 
@@ -117,7 +119,18 @@ class SfxPlayer(context: Context) {
         }
     }
 
-    /** Quiet loop while the player is driving the recharge strip. */
+    /** One-shot when the recharge strip fills the shield. */
+    fun playPitFull(volume: Float) {
+        if (released || volume <= 0f) return
+        val p = pool ?: return
+        val id = pitFullId
+        if (id == 0 || !isReady(id)) return
+        val vol = (volume * SfxMap.PIT_FULL_GAIN).coerceIn(0f, 1f)
+        val rate = SfxMap.PIT_FULL_RATE.coerceIn(0.5f, 2f)
+        try { p.play(id, vol, vol, 2, 0, rate) } catch (_: Exception) {}
+    }
+
+    /** Energy hum while the shield is still filling. [active] is false once it is full or the ship leaves. */
     fun updatePit(active: Boolean, volume: Float) {
         if (released) return
         val p = pool ?: return

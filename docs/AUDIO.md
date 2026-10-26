@@ -91,13 +91,16 @@ changes the playback rate with speed (about 0.72 at a standstill, up to about
 
 ### Recharge strip
 
-Driving the rainbow lane just after the start line loops `sfx_booster_c.ogg`
-at low volume (gain `SfxMap.PIT_GAIN`, rate `SfxMap.PIT_RATE`). That file is
-already the booster **c** candidate. To swap the loop, change `SfxMap.PIT_LOOP`
-to any other name from the table above. There is no separate pit file. Only
-the local player's strip is audible, so a pack of AI on it does not stack
-loops. The loop stops when the ship leaves the lane, the race ends, or SFX
-is muted.
+Both sounds reuse candidates that are already in the APK. Change `SfxMap.PIT_LOOP`
+or `SfxMap.PIT_FULL` to another name from the table above to swap one. There is
+no separate pit file. Only the local player is audible.
+
+| Slot | File | How it plays |
+|---|---|---|
+| Recharge hum | `sfx_booster_c.ogg` | Loops while the shield is filling on the strip. Gain `SfxMap.PIT_GAIN` (0.40), rate `SfxMap.PIT_RATE` (0.70), so the layered phaser-plus-thruster reads as an energy hum. Stops when the ship leaves the lane or the shield hits full. |
+| Shield full | `sfx_powerup_pickup_b.ogg` | One-shot chime on the frame the strip tops the shield off. Gain `SfxMap.PIT_FULL_GAIN` (0.88), rate `SfxMap.PIT_FULL_RATE` (1.28), higher than the pickup blip (`sfx_powerup_pickup_a` at rate 1). |
+
+The hum does not play if the shield is already full, and the chime does not play for a shield that was already full. Neither sound is tied to hull.
 
 ### Per-ship guns
 

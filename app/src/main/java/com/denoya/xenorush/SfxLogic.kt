@@ -44,12 +44,22 @@ object SfxMap {
     val ENGINE = SfxVariant.A
 
     /**
-     * Loop while the player is on the recharge strip. Reuses a bundled candidate
-     * (a slowed, quiet thruster). Point this at another [allFiles] name to swap it.
+     * Energy hum while the shield is filling on the recharge strip.
+     * `sfx_booster_c` is the layered phaser-plus-thruster candidate, played
+     * slower so it reads as a hum. Point [PIT_LOOP] at another [allFiles] name to swap it.
+     * The loop stops when the ship leaves the lane or the shield hits full.
      */
     const val PIT_LOOP = "sfx_booster_c"
-    const val PIT_GAIN = 0.30f
-    const val PIT_RATE = 0.76f
+    const val PIT_GAIN = 0.40f
+    const val PIT_RATE = 0.70f
+
+    /**
+     * Short chime when the strip tops the shield off.
+     * `sfx_powerup_pickup_b` pitched up, so it is not the same blip as a pickup.
+     */
+    const val PIT_FULL = "sfx_powerup_pickup_b"
+    const val PIT_FULL_GAIN = 0.88f
+    const val PIT_FULL_RATE = 1.28f
 
     /** Second ping of a bullet hit, played [SfxMix.BULLET_TINK_GAP_S] later. */
     val BULLET_TINK_SECOND = SfxVariant.B

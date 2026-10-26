@@ -27,7 +27,7 @@ object Changelog {
             "Music and sound-effect volume in Settings",
             "Engine, boost, weapons, hits and pickups play sound effects",
             "Each ship has its own gun sound",
-            "Recharge strip on the right of the start straight"
+            "Recharge strip on the start straight fills the shield"
         ),
         "v1.5.0" to listOf(
             "The game now runs in landscape (turn the phone either way)",
@@ -273,8 +273,12 @@ class Game(private val context: Context, private val activity: Activity?) {
         val top = r?.player?.maxSpeed()?.coerceAtLeast(1f) ?: 1f
         val ratio = if (r == null) 0f else r.player.speed / top
         sfx.updateEngine(driving, ratio, (r?.player?.boostT ?: 0f) > 0f, sfxVol)
-        val onPit = driving && r != null && PitStrip.onStrip(r.track, r.player.x, r.player.z)
-        sfx.updatePit(onPit, sfxVol)
+        val charging = driving && r != null && r.player.pitCharging
+        sfx.updatePit(charging, sfxVol)
+        if (r != null && r.player.shieldJustFull) {
+            if (driving) sfx.playPitFull(sfxVol)
+            r.player.shieldJustFull = false
+        }
         sfx.tick(dt, sfxVol > 0f)
     }
 

@@ -23,6 +23,8 @@ class Racer(
     var pitSeek = false                  // AI is steering for the recharge strip
     var pitLatched = false               // already rolled the dice for this approach
     var onPit = false
+    var pitCharging = false             // on the strip and the shield is still filling
+    var shieldJustFull = false          // topped off this frame; the chime plays once
     var alive = true
     var finished = false
     var finishTimeMs = -1L
@@ -268,8 +270,9 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
     }
 
     private fun updateRacer(r: Racer, dt: Float, input: PlayerInput, now: Long) {
-        if (!r.alive) return
+        if (!r.alive) { r.pitCharging = false; return }
         if (r.finished) {
+            r.pitCharging = false
             // cruise to a stop after finish
             r.speed = (r.speed - 4000f * dt).coerceAtLeast(0f)
             r.z += r.speed * dt
@@ -317,6 +320,7 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
         r.speed = clamp(r.speed, 0f, maxSpd * 1.2f)
 
         // move + lap
+        val prevZ = r.z
         r.z += r.speed * dt
         if (r.z >= track.trackLength) {
             r.z -= track.trackLength
@@ -327,21 +331,40 @@ class Race(val track: Track, val racers: List<Racer>, val raceStartTime: Long, g
                 r.lastLapStart = now
             }
         }
+        chargePit(r, prevZ)
 
+        if (!r.isPlayer) aiCombat(r)
+    }
+
+    /**
+     * Shield only. Points match distance along the lane, so covering the whole
+     * strip grants [PitStrip.FULL_PASS_SHIELD] whether the ship is fast or slow.
+     */
+    private fun chargePit(r: Racer, prevZ: Float) {
+        val inLane = abs(r.x - PitStrip.CENTER_X) <= PitStrip.HALF_WIDTH
+        val dist = if (inLane) PitStrip.distanceOnStrip(prevZ, r.z, track.trackLength) else 0f
         val riding = PitStrip.onStrip(track, r.x, r.z)
         if (r.isPlayer && riding && !r.onPit) events.add("RECHARGE")
         r.onPit = riding
-        if (riding && r.speed >= PitStrip.MIN_SPEED && r.shield < Arms.MAX_SHIELD) {
-            r.shieldBank += PitStrip.REGEN_PER_SEC * dt
-            val gain = r.shieldBank.toInt()
+        val room = Arms.MAX_SHIELD - r.shield
+        if (dist > 0f && room > 0) {
+            r.shieldBank += PitStrip.pointsFor(dist)
+            val topping = r.shieldBank >= room - 0.05f
+            val gain = if (topping) room else r.shieldBank.toInt()
             if (gain > 0) {
-                r.shield = (r.shield + gain).coerceAtMost(Arms.MAX_SHIELD)
-                r.shieldBank -= gain
-                if (r.shield >= Arms.MAX_SHIELD) r.shieldBank = 0f
+                r.shield += gain
+                if (topping) r.shieldBank = 0f else r.shieldBank -= gain
+                if (r.shield >= Arms.MAX_SHIELD) {
+                    r.shield = Arms.MAX_SHIELD
+                    r.shieldBank = 0f
+                    if (r.isPlayer) {
+                        r.shieldJustFull = true
+                        events.add("SHIELD FULL")
+                    }
+                }
             }
         }
-
-        if (!r.isPlayer) aiCombat(r)
+        r.pitCharging = dist > 0f && r.shield < Arms.MAX_SHIELD
     }
 
     /** AI: short gun bursts at whoever is just ahead, rockets/missiles now and then, mines when chased. */
