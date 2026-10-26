@@ -1,5 +1,6 @@
 package com.denoya.xenorush
 
+import kotlin.math.abs
 import kotlin.random.Random
 
 class Point {
@@ -19,6 +20,8 @@ class Segment(val index: Int) {
     var clip = 0f
     val sprites = ArrayList<TrackSprite>()
     var light = false
+    /** Right-shoulder recharge strip on the run past the start line. */
+    var pit = false
 }
 
 class Track(val def: TrackDef) {
@@ -96,6 +99,7 @@ object TrackGen {
         addRoad(track, 15, 30, 15, 0f, 0f)
 
         track.trackLength = (track.segments.size * C.SEG_LEN).toInt()
+        PitStrip.mark(track)
 
         // scatter power-ups deterministically
         val pRng = Random(def.seed + 99)
@@ -108,4 +112,120 @@ object TrackGen {
         }
         return track
     }
+}
+
+/**
+ * F-Zero-style recharge strip: a narrow lane on the right shoulder of the
+ * opening straight, the stretch just after the start/finish line.
+ *
+ * Every course begins with the same 80-segment straight, so the strip sits
+ * on the same segments of every track. Recharge follows distance along the
+ * lane, not time, and it never touches hull. [FULL_PASS_SHIELD] is the knob:
+ * driving the whole strip (9,200 units) grants that many shield points.
+ * [SPEED_CAP_FIRST] and [SPEED_CAP_SECOND] slow the lane: 90% of top speed
+ * on the first half, 85% on the second, eased across the middle. The refill
+ * still finishes at that pace, and pitting still costs a little time.
+ */
+object PitStrip {
+    const val START_SEG = 10
+    const val LENGTH_SEGS = 46
+    /** Road edge is 1.0. This sits just outside the rumble, still inside [C.MAX_LATERAL]. */
+    const val CENTER_X = 1.58f
+    const val HALF_WIDTH = 0.36f
+    /** Shield points for covering the entire strip. Does not heal hull. */
+    const val FULL_PASS_SHIELD = 100
+    /**
+     * Speed caps as a fraction of top speed. Boost does not raise them.
+     * First half of the strip uses [SPEED_CAP_FIRST] (10% off). Second half
+     * uses [SPEED_CAP_SECOND] (15% off). The blend between them is
+     * [SPEED_EASE_FROM] to [SPEED_EASE_TO], as progress along the strip.
+     */
+    const val SPEED_CAP_FIRST = 0.90f
+    const val SPEED_CAP_SECOND = 0.85f
+    const val SPEED_EASE_FROM = 0.35f
+    const val SPEED_EASE_TO = 0.65f
+    const val AI_SEEK_BELOW = 40
+    const val AI_SEEK_CHANCE = 0.5f
+    /** Segments before the strip where a seeking AI slides to the right lane. */
+    const val APPROACH_SEGS = 50
+    const val SHOULDER = 0.22f
+
+    fun lengthUnits(): Float = LENGTH_SEGS * C.SEG_LEN
+
+    /** 0 at the start of the strip, 1 at the end. */
+    fun progress(z: Float): Float = ((z - zStart()) / lengthUnits()).coerceIn(0f, 1f)
+
+    /** Cap fraction at [progress] along the strip. Smooth from the first half to the second. */
+    fun speedCapFraction(progress: Float): Float {
+        val span = (SPEED_EASE_TO - SPEED_EASE_FROM).coerceAtLeast(0.0001f)
+        val u = ((progress.coerceIn(0f, 1f) - SPEED_EASE_FROM) / span).coerceIn(0f, 1f)
+        return easeInOut(SPEED_CAP_FIRST, SPEED_CAP_SECOND, u)
+    }
+
+    fun speedLimit(topSpeed: Float, progress: Float): Float = topSpeed * speedCapFraction(progress)
+    fun zStart(): Float = START_SEG * C.SEG_LEN
+    fun zEnd(): Float = (START_SEG + LENGTH_SEGS) * C.SEG_LEN
+
+    /** World-units of [prevZ, newZ] that lie on the strip. Handles the lap wrap. */
+    fun distanceOnStrip(prevZ: Float, newZ: Float, trackLength: Int): Float {
+        val start = zStart()
+        val end = zEnd()
+        val len = trackLength.toFloat()
+        return if (newZ >= prevZ) {
+            spanOverlap(prevZ, newZ, start, end)
+        } else {
+            spanOverlap(prevZ, len, start, end) + spanOverlap(0f, newZ, start, end)
+        }
+    }
+
+    fun pointsFor(distance: Float): Float =
+        if (lengthUnits() <= 0f) 0f else distance / lengthUnits() * FULL_PASS_SHIELD
+
+    private fun spanOverlap(a0: Float, a1: Float, b0: Float, b1: Float): Float {
+        val lo = maxOf(a0, b0)
+        val hi = minOf(a1, b1)
+        return if (hi > lo) hi - lo else 0f
+    }
+
+    fun mark(track: Track) {
+        val end = (START_SEG + LENGTH_SEGS).coerceAtMost(track.segments.size)
+        for (i in START_SEG until end) {
+            val seg = track.segments[i]
+            if (seg.curve != 0f) break
+            seg.pit = true
+        }
+    }
+
+    fun indexAt(z: Float, size: Int): Int {
+        val n = size.coerceAtLeast(1)
+        var i = (z / C.SEG_LEN).toInt() % n
+        if (i < 0) i += n
+        return i
+    }
+
+    fun onStrip(track: Track, x: Float, z: Float): Boolean {
+        if (track.segments.isEmpty()) return false
+        val seg = track.segments[indexAt(z, track.size)]
+        return seg.pit && abs(x - CENTER_X) <= HALF_WIDTH
+    }
+
+    /** The shoulder under the strip is paved, so entering it is not a dirt slowdown. */
+    fun paved(track: Track, x: Float, z: Float): Boolean {
+        if (track.segments.isEmpty() || x <= 1f) return false
+        val seg = track.segments[indexAt(z, track.size)]
+        return seg.pit && x <= CENTER_X + HALF_WIDTH + SHOULDER
+    }
+
+    /** True on the strip and on the straight run into it. */
+    fun approaching(track: Track, z: Float): Boolean {
+        val n = track.size
+        if (n <= 0) return false
+        val idx = indexAt(z, n)
+        if (track.segments[idx].pit) return true
+        val dist = (START_SEG - idx + n) % n
+        return dist in 1..APPROACH_SEGS
+    }
+
+    fun wantsPit(shield: Int, roll: Float): Boolean =
+        shield < AI_SEEK_BELOW && roll < AI_SEEK_CHANCE
 }

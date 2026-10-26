@@ -36,6 +36,15 @@ fun main() {
     val puCounts = tracks.map { t -> t.segments.sumOf { s -> s.sprites.size } }
     println("      power-ups per track: min=${puCounts.min()} max=${puCounts.max()}")
     check("deterministic generation", TrackGen.build(Catalog.TRACKS[7]).let { b -> b.segments.map { it.curve } == tracks[7].segments.map { it.curve } })
+    check("pit strip on every track", tracks.all { t ->
+        val pits = t.segments.filter { it.pit }
+        pits.size == PitStrip.LENGTH_SEGS && pits.first().index == PitStrip.START_SEG && pits.all { it.curve == 0f }
+    })
+    check("pit approach is a straight", tracks.all { t ->
+        (1..PitStrip.APPROACH_SEGS).all { d -> t.segments[(PitStrip.START_SEG - d + t.size) % t.size].curve == 0f }
+    })
+    val pitFrac = tracks.map { PitStrip.LENGTH_SEGS.toFloat() / it.size }
+    println("      pit strip: segs ${PitStrip.START_SEG}..${PitStrip.START_SEG + PitStrip.LENGTH_SEGS - 1}, ${"%.1f".format(pitFrac.min() * 100)}–${"%.1f".format(pitFrac.max() * 100)}% of a lap")
 
     // --- full race simulation ---
     val track = tracks[0]
@@ -67,9 +76,171 @@ fun main() {
     check("ranks are a permutation", race.racers.map { race.rank(it) }.sorted() == (1..5).toList())
     check("race time positive", race.raceTimeMs > 0)
     // AI should stay mostly on the road (steering compensation works)
-    val aiOff = ais.count { kotlin.math.abs(it.x) > 1.3f }
+    val aiOff = ais.count { kotlin.math.abs(it.x) > 1.3f && !PitStrip.onStrip(track, it.x, it.z) }
     println("      AI off-road count at end: $aiOff/${ais.size} (avg |x| = ${"%.2f".format(ais.map { kotlin.math.abs(it.x) }.average())})")
     check("AI stays on road", aiOff <= 2)
+
+    // recharge strip: the whole lane refills shield, and never hull
+    run {
+        val t = tracks[0]
+        check("full strip distance grants a full shield",
+            PitStrip.pointsFor(PitStrip.lengthUnits()) == PitStrip.FULL_PASS_SHIELD.toFloat() &&
+                PitStrip.FULL_PASS_SHIELD == Arms.MAX_SHIELD &&
+                PitStrip.distanceOnStrip(PitStrip.zStart(), PitStrip.zEnd(), t.trackLength) == PitStrip.lengthUnits())
+        val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val r = Race(t, listOf(p), 0)
+        r.countdown = 0f
+        p.z = PitStrip.zStart() - 80f
+        p.x = PitStrip.CENTER_X
+        p.speed = 10000f
+        p.shield = 0
+        p.energy = 40
+        val gas = PlayerInput().apply { gas = true }
+        var n = 0
+        var framesOnStrip = 0
+        var sawFirst = false
+        var sawSecond = false
+        var overCap = false
+        while (n < 900 && p.z < PitStrip.zEnd() + 400f) {
+            val wasOn = PitStrip.onStrip(t, p.x, p.z)
+            val prog = PitStrip.progress(p.z)
+            r.update(1f / 60f, gas, n * 16L)
+            if (wasOn) {
+                framesOnStrip++
+                if (prog < PitStrip.SPEED_EASE_FROM) sawFirst = true
+                if (prog > PitStrip.SPEED_EASE_TO) sawSecond = true
+                if (p.speed > PitStrip.speedLimit(p.maxSpeed(), prog) + 1f) overCap = true
+            }
+            n++
+        }
+        println("      pit pass shield=${p.shield} hull=${p.energy} frames=$n")
+        check("full pit pass fills an empty shield", p.shield == Arms.MAX_SHIELD && r.events.contains("RECHARGE") && r.events.contains("SHIELD FULL") && p.shieldJustFull)
+        check("pit pass does not heal hull", p.energy == 40)
+        val caps = listOf(0f, 0.2f, 0.5f, 0.8f, 1f).map { PitStrip.speedCapFraction(it) }
+        check("pit eases from 90% to 85%",
+            PitStrip.SPEED_CAP_FIRST == 0.90f && PitStrip.SPEED_CAP_SECOND == 0.85f &&
+                kotlin.math.abs(caps.first() - PitStrip.SPEED_CAP_FIRST) < 0.001f &&
+                kotlin.math.abs(caps.last() - PitStrip.SPEED_CAP_SECOND) < 0.001f &&
+                caps.zipWithNext().all { (a, b) -> b <= a + 0.0001f } &&
+                framesOnStrip > 10 && sawFirst && sawSecond && !overCap)
+        fun aiAt(z: Float): Racer {
+            val ai = Racer(Catalog.VEHICLES[4], VehicleState(true, 1, 1, 1, 1), false, 1f)
+            val ra = Race(t, listOf(ai, Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)), 0)
+            ra.countdown = 0f
+            ai.z = z
+            ai.x = PitStrip.CENTER_X
+            ai.speed = ai.maxSpeed()
+            ra.update(1f / 60f, PlayerInput(), 0L)
+            return ai
+        }
+        val early = aiAt(PitStrip.zStart() + 200f)
+        val late = aiAt(PitStrip.zStart() + PitStrip.lengthUnits() * 0.8f)
+        check("pit cap applies to AI on both halves",
+            early.speed <= PitStrip.speedLimit(early.maxSpeed(), PitStrip.progress(PitStrip.zStart() + 200f)) + 1f &&
+                late.speed <= early.maxSpeed() * PitStrip.SPEED_CAP_SECOND + 1f)
+        val half = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val rh = Race(t, listOf(half), 0)
+        rh.countdown = 0f
+        half.z = PitStrip.zStart()
+        half.x = PitStrip.CENTER_X
+        half.speed = 10000f
+        half.shield = 0
+        half.energy = 70
+        var hn = 0
+        while (hn < 600 && half.z < PitStrip.zStart() + PitStrip.lengthUnits() / 2f) {
+            rh.update(1f / 60f, gas, 0L)
+            hn++
+        }
+        check("half the strip is a partial shield", half.shield in 40..60 && half.energy == 70 && !half.shieldJustFull)
+        val off = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val r2 = Race(t, listOf(off), 0)
+        r2.countdown = 0f
+        off.z = PitStrip.zStart() + 30f
+        off.x = 0f
+        off.speed = 10000f
+        off.energy = 55
+        repeat(40) { r2.update(1f / 60f, gas, 0L) }
+        check("center of the road does not recharge", off.shield == 0 && !off.onPit && off.energy == 55)
+        val full = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val rf = Race(t, listOf(full), 0)
+        rf.countdown = 0f
+        full.z = PitStrip.zStart() - 40f
+        full.x = PitStrip.CENTER_X
+        full.speed = 10000f
+        full.shield = Arms.MAX_SHIELD
+        full.energy = 15
+        var fn = 0
+        while (fn < 600 && full.z < PitStrip.zEnd() + 200f) {
+            rf.update(1f / 60f, gas, 0L)
+            fn++
+        }
+        check("a full shield does not chime again", full.shield == Arms.MAX_SHIELD && full.energy == 15 && !full.shieldJustFull && !rf.events.contains("SHIELD FULL") && !full.pitCharging)
+    }
+    check("boost level 1 is +30% and the hard cap is +50%",
+        Boost.bonusFor(1) == 0.30f && Boost.multiplier(1) == 1.30f &&
+            Boost.bonusFor(Boost.MAX_LEVEL) == Boost.HARD_MAX_BONUS && Boost.HARD_MAX_BONUS == 0.50f &&
+            (2..Boost.MAX_LEVEL).all { Boost.bonusFor(it) in Boost.bonusFor(it - 1)..Boost.HARD_MAX_BONUS })
+    run {
+        val t = tracks[0]
+        val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val race = Race(t, listOf(p), 0)
+        race.countdown = 0f
+        p.z = 3000f
+        p.x = 0f
+        p.speed = p.maxSpeed()
+        check("button boost starts", race.requestBoost(p) && p.boostT == Boost.DURATION_S && p.boostArmed)
+        check("button boost does not stack a second press", !race.requestBoost(p))
+        val gas = PlayerInput().apply { gas = true }
+        repeat(30) { race.update(1f / 60f, gas, 0L) }
+        val limit = p.maxSpeed() * p.boostMultiplier() * 1.2f
+        check("boost stays inside the shared cap", p.boostT > 0f && p.speed > p.maxSpeed() && p.speed <= limit + 1f)
+        var guard = 0
+        while (p.boostT > 0f && guard < 400) { race.update(1f / 60f, gas, 0L); guard++ }
+        check("boost then recharges for 10 seconds", p.boostT == 0f && kotlin.math.abs(p.boostCd - Boost.COOLDOWN_S) < 0.08f && !race.requestBoost(p))
+        val pad = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+        val rp = Race(t, listOf(pad), 0)
+        rp.countdown = 0f
+        rp.applyPickup(pad, PowerUpType.SPEED)
+        check("speed pad shares the cap and skips the button cooldown",
+            pad.boostT == Boost.DURATION_S && !pad.boostArmed && pad.boostCd == 0f && pad.boostMultiplier() == Boost.multiplier(pad.vs.b))
+        val ai = Racer(Catalog.VEHICLES[3], VehicleState(true, 1, 1, 1, 1), false, 1f)
+        val ra = Race(t, listOf(ai, Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)), 0)
+        ra.countdown = 0f
+        ai.z = 3000f
+        ai.x = 0f
+        ai.speed = ai.maxSpeed()
+        ra.update(1f / 60f, PlayerInput(), 0L)
+        check("AI boosts on a straight", ai.boostT > 0f && !PitStrip.onStrip(t, ai.x, ai.z))
+    }
+    run {
+        var took = 0
+        repeat(12) { n ->
+            val t = TrackGen.build(Catalog.TRACKS[n])
+            val ai = Racer(Catalog.VEHICLES[2], VehicleState(true, 1, 1, 1, 1), false, 1f)
+            val p = Racer(Catalog.VEHICLES[0], VehicleState(true, 1, 1, 1, 1), true, 1f)
+            val r = Race(t, listOf(ai, p), 0)
+            r.countdown = 0f
+            val approach = (PitStrip.START_SEG - PitStrip.APPROACH_SEGS + t.size) % t.size
+            ai.z = approach * C.SEG_LEN + 40f
+            ai.x = 0f
+            ai.speed = 9000f
+            ai.shield = 0
+            p.z = t.trackLength * 0.5f
+            var steps = 0
+            var best = 0
+            while (steps < 60 * 6) {
+                r.update(1f / 60f, PlayerInput(), steps * 16L)
+                p.speed = 0f
+                if (ai.shield > best) best = ai.shield
+                val idx = PitStrip.indexAt(ai.z, t.size)
+                if (steps > 20 && idx > PitStrip.START_SEG + PitStrip.LENGTH_SEGS + 15 && idx < t.size / 2) break
+                steps++
+            }
+            if (best > 0) took++
+        }
+        println("      low-shield AI who recharged: $took/12")
+        check("low-shield AI sometimes use the pit", took in 2..10)
+    }
 
     // --- reflection: incoming projectile bounces back and damages the shooter ---
     run {
@@ -263,6 +434,8 @@ fun main() {
     runWeaponTests(::check)
     runMusicTests(::check)
     runMirrorTests(::check)
+    runGraphicsTests(::check)
+    runAnnouncerTests(::check)
 
     println("\n$pass passed, $fail failed")
     if (fail > 0) kotlin.system.exitProcess(1)

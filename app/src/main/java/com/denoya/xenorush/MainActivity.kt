@@ -2,6 +2,8 @@ package com.denoya.xenorush
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 
@@ -9,6 +11,7 @@ class MainActivity : Activity() {
     private lateinit var gameView: GameView
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashLog.install(this)
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         gameView = GameView(this)
@@ -41,5 +44,20 @@ class MainActivity : Activity() {
         super.onResume()
         hideSystemUi()
         gameView.resumeGame()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (gameView.dispatchGamepadKey(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (gameView.onGenericMotionEvent(event)) return true
+        return super.onGenericMotionEvent(event)
+    }
+
+    override fun onDestroy() {
+        gameView.releaseGame()
+        super.onDestroy()
     }
 }

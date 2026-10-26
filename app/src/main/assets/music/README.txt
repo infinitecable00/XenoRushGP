@@ -1,3 +1,2 @@
-Put InfiniteCable songs here (mp3, ogg, m4a, aac, wav or flac), then rebuild.
-The game picks a random song after GO in every race. File names become the
-"NOW PLAYING" title: "03_Neon_Overdrive.mp3" shows as "Neon Overdrive".
+Menu and race music for XenoRush GP. See docs/AUDIO.md.
+music_menu_*.ogg loops on the menus. music_race_*.ogg is shuffled after GO.

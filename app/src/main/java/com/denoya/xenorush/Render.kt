@@ -1,5 +1,6 @@
 package com.denoya.xenorush
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -15,6 +16,16 @@ class Renderer {
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var lastW = -1
     private var lastH = -1
+    /** 0..1 cycle for the recharge strip's rainbow. */
+    private var pitPhase = 0f
+    /** Set each frame from the Max Graphics toggle (or the safe default). */
+    var quality: Graphics.Tier = Graphics.Tier.SAFE
+    /** Null hides the readout. Shown in the top-right corner of a race. */
+    var fpsLabel: String? = null
+    /** False while a gamepad is driving, so the touch buttons get out of the way. */
+    var showTouchControls = true
+    private var worldBuf: Bitmap? = null
+    private var worldCanvas: Canvas? = null
 
     private fun ensureShaders(w: Int, h: Int, def: TrackDef?) {
         if (w == lastW && h == lastH && skyPaint.shader != null) return
@@ -24,10 +35,49 @@ class Renderer {
     }
 
     fun drawRace(c: Canvas, race: Race, track: Track, input: PlayerInput, ui: RaceUi) {
+        val world = canvasForWorld(c)
+        drawWorld(world, race, track, input)
+        if (world !== c) {
+            val bmp = worldBuf
+            if (bmp != null) {
+                paint.shader = null
+                paint.isFilterBitmap = true
+                paint.color = Color.WHITE
+                c.drawBitmap(bmp, null, RectF(0f, 0f, c.width.toFloat(), c.height.toFloat()), paint)
+                paint.isFilterBitmap = false
+            }
+        }
+        paint.isAntiAlias = true
+        val w = c.width
+        val h = c.height
+        drawHud(c, race, w, h, ui)
+        if (quality.mirrorSegments > 0) drawMirror(c, race, track, mirrorRect(w, h))
+        drawFps(c, w, h)
+    }
+
+    /** Full-size canvas, or a cached smaller bitmap when the tier scales resolution down. */
+    private fun canvasForWorld(screen: Canvas): Canvas {
+        val scale = quality.resolutionScale
+        if (scale >= 0.995f || screen.width < 32 || screen.height < 32) return screen
+        val bw = (screen.width * scale).toInt().coerceIn(1, screen.width)
+        val bh = (screen.height * scale).toInt().coerceIn(1, screen.height)
+        var bmp = worldBuf
+        if (bmp == null || bmp.width != bw || bmp.height != bh) {
+            bmp?.recycle()
+            bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            worldBuf = bmp
+            worldCanvas = Canvas(bmp)
+        }
+        return worldCanvas!!
+    }
+
+    private fun drawWorld(c: Canvas, race: Race, track: Track, input: PlayerInput) {
+        paint.isAntiAlias = quality.antialias
         val w = c.width
         val h = c.height
         ensureShaders(w, h, track.def)
         val player = race.player
+        pitPhase = (System.currentTimeMillis() % 1400L) / 1400f
 
         // camera
         val baseSegment = track.segAt(player.z)
@@ -57,7 +107,8 @@ class Renderer {
         var dx = -(baseSegment.curve * basePercent)
         val camDepth = C.CAM_DEPTH
 
-        for (n in 0 until C.DRAW_DIST) {
+        val dist = quality.drawDist.coerceIn(1, C.DRAW_DIST)
+        for (n in 0 until dist) {
             val seg = track.segments[(baseSegment.index + n) % track.size]
             val looped = seg.index < baseSegment.index
             val camZoff = camZ - (if (looped) track.trackLength.toFloat() else 0f)
@@ -76,7 +127,7 @@ class Renderer {
         }
 
         // sprites & cars back-to-front
-        for (n in (C.DRAW_DIST - 1) downTo 0) {
+        for (n in (dist - 1) downTo 0) {
             val segIdx = (baseSegment.index + n) % track.size
             val seg = track.segments[segIdx]
             val clipY = seg.clip
@@ -108,9 +159,6 @@ class Renderer {
         drawPlayerCar(c, w, h, player, input)
         drawProjectilesNear(c, race, w, h, camX, camY, camZ, camDepth)
         c.restore()
-
-        drawHud(c, race, w, h, ui)
-        drawMirror(c, race, track, mirrorRect(w, h))
     }
 
     private fun project(p: Point, camX: Float, camY: Float, camZ: Float, camDepth: Float, w: Int, h: Int) {
@@ -125,19 +173,22 @@ class Renderer {
 
     private fun drawSky(c: Canvas, w: Int, h: Int, track: Track) {
         c.drawRect(0f, 0f, w.toFloat(), h * 0.56f, skyPaint)
-        // sun/planet glow
-        paint.color = Color.argb(90, 255, 255, 255)
         val sr = minOf(w, h).toFloat()
-        c.drawCircle(w * 0.5f, h * 0.34f, sr * 0.16f, paint)
+        if (quality.glow) {
+            paint.color = Color.argb(90, 255, 255, 255)
+            c.drawCircle(w * 0.5f, h * 0.34f, sr * 0.16f, paint)
+        }
         paint.color = Color.argb(160, 255, 240, 200)
         c.drawCircle(w * 0.5f, h * 0.34f, sr * 0.09f, paint)
-        // stars
-        paint.color = Color.argb(120, 255, 255, 255)
-        val starRng = kotlin.random.Random(track.def.seed)
-        for (i in 0 until 40) {
-            val sx = starRng.nextFloat() * w
-            val sy = starRng.nextFloat() * h * 0.2f
-            c.drawCircle(sx, sy, 1.4f, paint)
+        val nStars = quality.stars
+        if (nStars > 0) {
+            paint.color = Color.argb(120, 255, 255, 255)
+            val starRng = kotlin.random.Random(track.def.seed)
+            for (i in 0 until nStars) {
+                val sx = starRng.nextFloat() * w
+                val sy = starRng.nextFloat() * h * 0.2f
+                c.drawCircle(sx, sy, 1.4f, paint)
+            }
         }
     }
 
@@ -171,7 +222,7 @@ class Renderer {
         quad(c, p1.screenX - l1, p1.screenY, p1.screenX + l1, p1.screenY, p2.screenX + l2, p2.screenY, p2.screenX - l2, p2.screenY, road)
 
         // lane markers on light segments
-        if (seg.light) {
+        if (seg.light && quality.laneMarkers) {
             val lw1 = l1 / 24f
             val lw2 = l2 / 24f
             val lanes = C.LANES
@@ -182,6 +233,8 @@ class Renderer {
                 quad(c, lx1 - lw1, p1.screenY, lx1 + lw1, p1.screenY, lx2 + lw2, p2.screenY, lx2 - lw2, p2.screenY, Color.argb(160, 255, 255, 255))
             }
         }
+
+        if (seg.pit) drawPitStrip(c, seg)
 
         // start/finish line
         if (seg.index < 4) {
@@ -194,6 +247,62 @@ class Renderer {
                 sx += cw
                 i++
             }
+        }
+    }
+
+    /**
+     * Rainbow energy lane on the right shoulder. Hue marches along the strip
+     * and scrolls with [pitPhase], with a bright core and white rails.
+     */
+    private fun drawPitStrip(c: Canvas, seg: Segment) {
+        val p1 = seg.p1
+        val p2 = seg.p2
+        val l1 = p1.screenW
+        val l2 = p2.screenW
+        val inner = PitStrip.CENTER_X - PitStrip.HALF_WIDTH
+        val outer = PitStrip.CENTER_X + PitStrip.HALF_WIDTH
+        val hue = ((seg.index * 16f + pitPhase * 360f) % 360f + 360f) % 360f
+        val glow = 0.10f
+        quad(c,
+            p1.screenX + l1 * (inner - glow), p1.screenY,
+            p1.screenX + l1 * (outer + glow), p1.screenY,
+            p2.screenX + l2 * (outer + glow), p2.screenY,
+            p2.screenX + l2 * (inner - glow), p2.screenY,
+            Color.HSVToColor(90, floatArrayOf(hue, 0.95f, 1f)))
+        quad(c,
+            p1.screenX + l1 * inner, p1.screenY,
+            p1.screenX + l1 * outer, p1.screenY,
+            p2.screenX + l2 * outer, p2.screenY,
+            p2.screenX + l2 * inner, p2.screenY,
+            Color.HSVToColor(230, floatArrayOf(hue, 0.72f, 1f)))
+        val core = PitStrip.HALF_WIDTH * 0.34f
+        quad(c,
+            p1.screenX + l1 * (PitStrip.CENTER_X - core), p1.screenY,
+            p1.screenX + l1 * (PitStrip.CENTER_X + core), p1.screenY,
+            p2.screenX + l2 * (PitStrip.CENTER_X + core), p2.screenY,
+            p2.screenX + l2 * (PitStrip.CENTER_X - core), p2.screenY,
+            Color.HSVToColor(255, floatArrayOf((hue + 28f) % 360f, 0.25f, 1f)))
+        val rail = 0.045f
+        val railCol = Color.argb(230, 255, 255, 255)
+        quad(c,
+            p1.screenX + l1 * inner, p1.screenY,
+            p1.screenX + l1 * (inner + rail), p1.screenY,
+            p2.screenX + l2 * (inner + rail), p2.screenY,
+            p2.screenX + l2 * inner, p2.screenY, railCol)
+        quad(c,
+            p1.screenX + l1 * (outer - rail), p1.screenY,
+            p1.screenX + l1 * outer, p1.screenY,
+            p2.screenX + l2 * outer, p2.screenY,
+            p2.screenX + l2 * (outer - rail), p2.screenY, railCol)
+        // Bright band that steps backward along the lane so the strip looks like it flows.
+        if ((seg.index + (pitPhase * 8f).toInt()) % 4 == 0) {
+            val inset = 0.08f
+            quad(c,
+                p1.screenX + l1 * (inner + inset), p1.screenY,
+                p1.screenX + l1 * (outer - inset), p1.screenY,
+                p2.screenX + l2 * (outer - inset), p2.screenY,
+                p2.screenX + l2 * (inner + inset), p2.screenY,
+                Color.argb(150, 255, 255, 255))
         }
     }
 
@@ -225,9 +334,10 @@ class Renderer {
             PowerUpType.MISSILE -> Color.argb(255, 255, 150, 40)
             PowerUpType.MINES -> Color.argb(255, 230, 60, 60)
         }
-        // glow
-        paint.color = Color.argb(70, Color.red(col), Color.green(col), Color.blue(col))
-        c.drawCircle(screenX, screenY, r * 2.4f, paint)
+        if (quality.glow) {
+            paint.color = Color.argb(70, Color.red(col), Color.green(col), Color.blue(col))
+            c.drawCircle(screenX, screenY, r * 2.4f, paint)
+        }
         paint.color = col
         c.drawCircle(screenX, screenY, r, paint)
         paint.color = Color.WHITE
@@ -251,8 +361,10 @@ class Renderer {
         val screenY = seg.p1.screenY
         val r = scale * C.ROAD_WIDTH * w / 2f * 0.03f
         if (screenY > clipY || r < 1.5f) return
-        paint.color = Color.argb(70, 255, 60, 60)
-        c.drawCircle(screenX, screenY, r * 2.5f, paint)
+        if (quality.glow) {
+            paint.color = Color.argb(70, 255, 60, 60)
+            c.drawCircle(screenX, screenY, r * 2.5f, paint)
+        }
         paint.color = Color.argb(255, 200, 40, 40)
         c.drawCircle(screenX, screenY, r, paint)
     }
@@ -263,14 +375,15 @@ class Renderer {
         val screenY = seg.p1.screenY
         val cw = scale * C.ROAD_WIDTH * w / 2f * 0.16f // half width
         if (screenY > clipY || cw < 2f) return
-        drawCarShape(c, screenX, screenY, cw, r.vehicle.color, 0f)
+        drawCarShape(c, screenX, screenY, cw, r.vehicle.color, 0f, quality.glow)
     }
 
-    fun drawCarShape(c: Canvas, cx: Float, bottomY: Float, halfW: Float, color: Int, steer: Float) {
+    fun drawCarShape(c: Canvas, cx: Float, bottomY: Float, halfW: Float, color: Int, steer: Float, glow: Boolean = true) {
         val h = halfW * 0.55f
-        // engine glow
-        paint.color = Color.argb(90, 0, 220, 255)
-        c.drawCircle(cx, bottomY, halfW * 1.2f, paint)
+        if (glow) {
+            paint.color = Color.argb(90, 0, 220, 255)
+            c.drawCircle(cx, bottomY, halfW * 1.2f, paint)
+        }
         // body
         paint.color = color
         val p = android.graphics.Path()
@@ -305,8 +418,10 @@ class Renderer {
             else -> Color.argb(255, 255, 215, 0) // LEADER
         }
         val size = if (p.type == WeaponType.BULLET) r * 0.45f else if (p.type.guided) r * 1.25f else r
-        paint.color = Color.argb(80, Color.red(col), Color.green(col), Color.blue(col))
-        c.drawCircle(screenX, screenY, size * 2.8f, paint)
+        if (quality.glow) {
+            paint.color = Color.argb(80, Color.red(col), Color.green(col), Color.blue(col))
+            c.drawCircle(screenX, screenY, size * 2.8f, paint)
+        }
         paint.color = col
         c.drawCircle(screenX, screenY, size, paint)
     }
@@ -387,11 +502,13 @@ class Renderer {
         }
         c.drawRect(ebX, ebY, ebX + ebW * clamp(pct, 0f, 1f), ebY + ebH, paint)
         val sbY = 14f * u
+        val onPit = player.pitCharging
         textPaint.textSize = 2.9f * u
-        c.drawText("SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - 0.9f * u, textPaint)
+        textPaint.color = if (onPit) Color.HSVToColor(255, floatArrayOf((pitPhase * 360f) % 360f, 0.45f, 1f)) else Color.argb(235, 200, 210, 255)
+        c.drawText(if (onPit) "RECHARGE ${player.shield}/${Arms.MAX_SHIELD}" else "SHIELD ${player.shield}/${Arms.MAX_SHIELD}", ebX, sbY - 0.9f * u, textPaint)
         paint.color = Color.argb(255, 30, 40, 70)
         c.drawRect(ebX, sbY, ebX + ebW, sbY + ebH * 0.75f, paint)
-        paint.color = Color.argb(255, 80, 190, 255)
+        paint.color = if (onPit) Color.HSVToColor(255, floatArrayOf((pitPhase * 360f) % 360f, 0.55f, 1f)) else Color.argb(255, 80, 190, 255)
         c.drawRect(ebX, sbY, ebX + ebW * clamp(player.shield / Arms.MAX_SHIELD.toFloat(), 0f, 1f), sbY + ebH * 0.75f, paint)
 
         // ---- lap / position (between hull panel and mirror) ----
@@ -462,8 +579,7 @@ class Renderer {
             drawTextCentered(c, label, w * 0.5f, 56f * u, 24f * u, col)
         }
 
-        // controls
-        drawControls(c, w, h, ui)
+        if (showTouchControls) drawControls(c, w, h, ui, race.player)
     }
 
     // ---------------- rear-view mirror ----------------
@@ -500,7 +616,8 @@ class Renderer {
 
         // road, near to far, skipping anything hidden behind a crest
         var maxy = rect.bottom
-        for (k in 0 until RearView.SEGMENTS) {
+        val mirrorN = minOf(quality.mirrorSegments, RearView.SEGMENTS)
+        for (k in 0 until mirrorN) {
             val s = rv.seg(k)
             if (!rv.project(0f, s.p2.worldY, rv.nearDist(k), rv.xNear[k], rvA)) continue
             if (!rv.project(0f, s.p1.worldY, rv.farDist(k), rv.xFar[k], rvB)) continue
@@ -597,10 +714,12 @@ class Renderer {
         val gun = floatArrayOf(w - 17f * u, 50f * u, 12f * u)
         val special = floatArrayOf(w - 45f * u, 58f * u, 11f * u)
         val cycle = floatArrayOf(w - 43f * u, 35f * u, 8f * u)
+        /** Above the steer pair, clear of the arrows. */
+        val boost = floatArrayOf(30f * u, 50f * u, 10.5f * u)
         val pause = RectF(w - 15.5f * u, 1.5f * u, w - 1.5f * u, 18f * u)
     }
 
-    private fun drawControls(c: Canvas, w: Int, h: Int, ui: RaceUi) {
+    private fun drawControls(c: Canvas, w: Int, h: Int, ui: RaceUi, player: Racer) {
         val L = CtrlLayout(w, h)
         val btn = { b: FloatArray, label: String, pressed: Boolean, col: Int ->
             paint.color = if (pressed) Color.argb(200, Color.red(col), Color.green(col), Color.blue(col)) else Color.argb(90, Color.red(col), Color.green(col), Color.blue(col))
@@ -620,9 +739,67 @@ class Renderer {
         val sp = ui.secondaryLabel
         btn(L.special, sp, ui.specialPressed, Color.argb(255, 220, 90, 50))
         btn(L.cycle, "WPN", ui.cyclePressed, Color.argb(255, 120, 120, 170))
+        drawBoostButton(c, L.boost, player)
+    }
+
+    /** BST on the left. Bright when ready, a draining arc while boosting, a filling arc on cooldown. */
+    private fun drawBoostButton(c: Canvas, b: FloatArray, player: Racer) {
+        val cx = b[0]
+        val cy = b[1]
+        val rad = b[2]
+        val boosting = player.boostT > 0f
+        val cooling = player.boostCd > 0f
+        val ready = !boosting && !cooling
+        paint.style = Paint.Style.FILL
+        paint.color = when {
+            boosting -> Color.argb(220, 0, 220, 190)
+            ready -> Color.argb(170, 0, 190, 170)
+            else -> Color.argb(90, 40, 70, 80)
+        }
+        c.drawCircle(cx, cy, rad, paint)
+        paint.color = Color.argb(40, 255, 255, 255)
+        c.drawCircle(cx, cy, rad * 0.94f, paint)
+        if (!ready) {
+            val frac = if (boosting) {
+                (player.boostT / Boost.DURATION_S).coerceIn(0f, 1f)
+            } else {
+                (1f - player.boostCd / Boost.COOLDOWN_S).coerceIn(0f, 1f)
+            }
+            val oval = RectF(cx - rad * 0.78f, cy - rad * 0.78f, cx + rad * 0.78f, cy + rad * 0.78f)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = rad * 0.16f
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.color = Color.argb(230, 170, 255, 235)
+            c.drawArc(oval, -90f, 360f * frac, false, paint)
+            paint.style = Paint.Style.FILL
+            paint.strokeCap = Paint.Cap.BUTT
+        }
+        textPaint.textAlign = Paint.Align.CENTER
+        textPaint.textSize = rad * 0.42f
+        textPaint.color = Color.WHITE
+        c.drawText("BST", cx, cy + rad * 0.16f, textPaint)
+    }
+
+    /** Top-right, just under the pause button. Hidden when [fpsLabel] is null. */
+    private fun drawFps(c: Canvas, w: Int, h: Int) {
+        val label = fpsLabel ?: return
+        val u = h / 100f
+        textPaint.textAlign = Paint.Align.RIGHT
+        textPaint.textSize = 2.7f * u
+        textPaint.color = Color.argb(200, 190, 255, 230)
+        c.drawText(label, w - 2f * u, 22.2f * u, textPaint)
     }
 
     // ---------------- shared UI helpers ----------------
+
+    fun drawFocus(c: Canvas, rect: RectF) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 4f
+        paint.color = Color.argb(230, 0, 229, 255)
+        c.drawRoundRect(rect, 18f, 18f, paint)
+        paint.style = Paint.Style.FILL
+        paint.strokeWidth = 0f
+    }
 
     fun drawButton(c: Canvas, rect: RectF, label: String, color: Int, pressed: Boolean = false, textSize: Float = 34f) {
         paint.color = if (pressed) Color.argb(230, Color.red(color), Color.green(color), Color.blue(color)) else Color.argb(255, Color.red(color), Color.green(color), Color.blue(color))
@@ -655,5 +832,6 @@ class RaceUi(val input: PlayerInput) {
     var gunPressed = false        // hold for automatic fire
     var specialPressed = false    // fires the selected rocket / missile / mine
     var cyclePressed = false      // switches the selected special weapon
+    var boostPressed = false      // one-shot boost
     var secondaryLabel = "RKT"
 }
